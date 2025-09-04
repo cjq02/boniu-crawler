@@ -53,14 +53,6 @@ class BoniuCrawler(RequestsCrawler):
             return int(number * 10000) if number else 0
         return int(extract_number(view_text) or 0)
 
-    def run(self) -> None:
-        posts = self.crawl_forum_posts()
-        if posts:
-            self.save_data(posts, "boniu_forum_posts.json")
-            self.logger.info(f"列表抓取完成: {len(posts)} 条")
-        else:
-            self.logger.warning("未抓取到帖子数据")
-
     def crawl_forum_posts(self) -> List[Dict[str, Any]]:
         self.logger.info(f"开始爬取论坛页面: {self.forum_url}")
         resp = self.crawl_url(self.forum_url)
@@ -163,12 +155,3 @@ class BoniuCrawler(RequestsCrawler):
             'is_essence': is_essence,
             'crawl_time': format_datetime(),
         }
-
-
-def main():
-    crawler = BoniuCrawler()
-    crawler.start()
-
-
-if __name__ == "__main__":
-    main()
