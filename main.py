@@ -6,7 +6,7 @@ import argparse
 import os
 from typing import Optional
 
-from boniu_crawler import BoniuCrawler
+from crawler_pkg import BoniuCrawler
 from utils import save_data as save_to_file
 
 
