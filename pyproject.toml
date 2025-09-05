@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 [project.scripts]
-boniu-crawler = "cli:main"
+boniu-crawler = "src.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/boniu-crawler"

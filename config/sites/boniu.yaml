@@ -1,0 +1,32 @@
+# 博牛社区站点配置
+site:
+  name: "博牛社区"
+  base_url: "https://bbs.boniu123.cc"
+  forum_url: "https://bbs.boniu123.cc/forum-89-1.html"
+  
+selectors:
+  post_row: "tr"
+  title_link: "a.s.xst"
+  username: "a[class*='username']"
+  avatar: "img[class*='avatar']"
+  reply_count: "span.replayNum"
+  view_count: "span.viewNum"
+  publish_time: "span[title]"
+  
+categories:
+  - "游戏包网"
+  - "游戏API"
+  - "支付渠道"
+  - "广告营销"
+  - "云服务"
+  - "技术外包"
+  - "媒体渠道"
+  - "本地服务"
+
+headers:
+  User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8"
+  Accept-Language: "zh-CN,zh;q=0.9,en;q=0.8"
+  Accept-Encoding: "gzip, deflate, br"
+  Connection: "keep-alive"
+  Upgrade-Insecure-Requests: "1"
