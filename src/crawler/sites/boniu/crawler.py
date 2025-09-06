@@ -1,14 +1,19 @@
 """博牛站点爬虫实现"""
 
+import os
+import json
 import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
+import logging
+import pymysql
 
 from ...core.requests_impl import RequestsCrawler
 from ...utils.parser import clean_text, extract_number
 from ...utils.http import format_datetime
+from ...utils.db import get_db_config, connect, fetch_all, executemany
 
 
 def _extract_text(result: Any) -> Optional[str]:
@@ -28,11 +33,23 @@ def _extract_text(result: Any) -> Optional[str]:
 class BoniuCrawler(RequestsCrawler):
     """博牛社区爬虫"""
     
+    # 配置常量
+    DEFAULT_MAX_PAGES = 2
+    DEFAULT_DELAY_SECONDS = 1.0
+    
     def __init__(self):
         super().__init__("boniu_crawler")
+        # 初始化日志器
+        if not self.logger:
+            self.logger = logging.getLogger(self.name)
+            if not self.logger.handlers:
+                logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s %(name)s: %(message)s')
         self.base_url = "https://bbs.boniu123.cc"
         self.forum_url = "https://bbs.boniu123.cc/forum-89-1.html"
         self._setup_headers()
+        # DB 配置（可通过环境变量覆盖）
+        self.db_cfg = get_db_config()
+        self.table_name = "ims_mdkeji_im_boniu_forum_post"
 
     def _setup_headers(self):
         """设置博牛社区特定的请求头"""
@@ -100,10 +117,17 @@ class BoniuCrawler(RequestsCrawler):
             post_id = m.group(1)
 
         # 用户名
-        username = "未知用户"
-        user_element = row.find('a', class_=re.compile(r'username|author'))
-        if user_element:
+        username = None
+        user_element = (
+            row.select_one('td.by cite a')
+            or row.select_one('td.by a[href*="space-uid"]')
+            or row.find('a', href=re.compile(r'space-uid|uid=\d+'))
+            or row.find('a', class_=re.compile(r'username|author'))
+        )
+        if user_element and user_element.get_text(strip=True):
             username = clean_text(user_element.get_text())
+        if not username:
+            username = "未知用户"
 
         # 头像
         avatar_url = None
@@ -168,10 +192,211 @@ class BoniuCrawler(RequestsCrawler):
             'is_sticky': is_sticky,
             'is_essence': is_essence,
             'crawl_time': format_datetime(),
+            'content': '',  # 初始为空，后续通过详情页获取
         }
 
+    def _fetch_post_content(self, post_url: str) -> str:
+        """获取帖子详情页内容"""
+        try:
+            if self.logger:
+                self.logger.debug(f"获取帖子内容: {post_url}")
+            
+            resp = self.crawl_url(post_url)
+            html = _extract_text(resp)
+            if not html:
+                return ""
+            
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # 尝试多种选择器获取帖子内容（博牛论坛特定）
+            content_selectors = [
+                'div.t_f',  # Discuz论坛常见的内容区域
+                'div.t_fsz',  # Discuz论坛内容区域
+                'div.postmessage',  # 帖子消息区域
+                'div#postmessage',  # ID选择器
+                'div.content',  # 通用内容区域
+                'div.message',  # 消息区域
+                'div.post_content',  # 帖子内容区域
+                'div.thread_content',  # 线程内容区域
+                'div[id*="postmessage"]',  # 包含postmessage的ID
+                'div[class*="postmessage"]',  # 包含postmessage的class
+            ]
+            
+            content = ""
+            for selector in content_selectors:
+                content_el = soup.select_one(selector)
+                if content_el:
+                    # 移除脚本和样式标签
+                    for script in content_el(["script", "style"]):
+                        script.decompose()
+                    content = clean_text(content_el.get_text())
+                    if content:
+                        break
+            
+            # 限制长度避免过长
+            return content[:65535] if content else ""
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"获取帖子内容失败 {post_url}: {e}")
+            return ""
+
+    # ========= 分页爬取 + 去重 + 入库 =========
+
+    def _get_existing_ids(self) -> set:
+        """读取库中已存在的帖子ID集合"""
+        if self.logger:
+            self.logger.info(f"查询已存在ID: 表={self.table_name}")
+        rows = fetch_all(f"SELECT id FROM `{self.table_name}` WHERE id IS NOT NULL")
+        existing = {str(row['id']) for row in rows}
+        if self.logger:
+            self.logger.info(f"已存在ID数量: {len(existing)}")
+        return existing
+
+    def _insert_posts(self, posts: List[Dict[str, Any]]) -> int:
+        """批量插入/更新帖子"""
+        if not posts:
+            return 0
+        sql = f"""
+        INSERT INTO `{self.table_name}` (
+          `id`,`title`,`url`,`user_id`,`username`,`avatar_url`,
+          `publish_time`,`reply_count`,`view_count`,`images`,`category`,
+          `is_sticky`,`is_essence`,`crawl_time`,`type`,`is_crawl`,`content`
+        ) VALUES (
+          %s,%s,%s,%s,%s,%s,
+          %s,%s,%s,%s,%s,
+          %s,%s,%s,%s,%s,%s
+        )
+        ON DUPLICATE KEY UPDATE
+          `title`=VALUES(`title`),
+          `url`=VALUES(`url`),
+          `user_id`=VALUES(`user_id`),
+          `username`=VALUES(`username`),
+          `avatar_url`=VALUES(`avatar_url`),
+          `publish_time`=VALUES(`publish_time`),
+          `reply_count`=VALUES(`reply_count`),
+          `view_count`=VALUES(`view_count`),
+          `images`=VALUES(`images`),
+          `category`=VALUES(`category`),
+          `is_sticky`=VALUES(`is_sticky`),
+          `is_essence`=VALUES(`is_essence`),
+          `crawl_time`=VALUES(`crawl_time`),
+          `type`=VALUES(`type`),
+          `is_crawl`=VALUES(`is_crawl`),
+          `content`=VALUES(`content`);
+        """
+        rows = []
+        for p in posts:
+            images_json = json.dumps(p.get('images') or [], ensure_ascii=False)
+            rows.append(
+                (
+                    int(p.get('id') or 0),
+                    (p.get('title') or '')[:255],
+                    (p.get('url') or '')[:512],
+                    None if p.get('user_id') in (None, '') else int(p.get('user_id')),
+                    (p.get('username') or '')[:100],
+                    (p.get('avatar_url') or None),
+                    p.get('publish_time') or None,
+                    int(p.get('reply_count') or 0),
+                    int(p.get('view_count') or 0),
+                    images_json,
+                    (p.get('category') or '')[:100],
+                    1 if p.get('is_sticky') else 0,
+                    1 if p.get('is_essence') else 0,
+                    p.get('crawl_time') or None,
+                    (p.get('type') or '')[:50],
+                    1 if p.get('is_crawl', 1) else 0,
+                    (p.get('content') or '')[:65535],  # TEXT字段最大长度
+                )
+            )
+        if rows:
+            if self.logger:
+                self.logger.info(f"批量入库: 记录数={len(rows)} 表={self.table_name}")
+            affected = executemany(sql, rows)
+            if self.logger:
+                self.logger.info(f"入库完成: 受影响行数≈{affected}")
+            return len(rows)
+        return 0
+
+    def crawl_paginated_and_store(self, max_pages: int = None, delay_seconds: float = None) -> None:
+        """分页爬取；若当前页所有帖子已存在则停止；最后插入新数据"""
+        # 使用默认值
+        max_pages = max_pages or self.DEFAULT_MAX_PAGES
+        delay_seconds = delay_seconds or self.DEFAULT_DELAY_SECONDS
+        
+        if self.logger:
+            self.logger.info(f"开始分页爬取并入库 (最大页数: {max_pages}, 延迟: {delay_seconds}秒)")
+
+        existing_ids = self._get_existing_ids()
+        if self.logger:
+            self.logger.info(f"数据库已有 {len(existing_ids)} 条")
+
+        all_new_posts: List[Dict[str, Any]] = []
+
+        page = 1
+        while page <= max_pages:
+            # 构造分页 URL
+            self.forum_url = f"https://bbs.boniu123.cc/forum-89-{page}.html"
+            if self.logger:
+                self.logger.info(f"爬取第 {page} 页: {self.forum_url}")
+
+            posts = self.crawl_forum_posts()
+            if not posts:
+                if self.logger:
+                    self.logger.info("该页无数据，停止")
+                break
+
+            ids_on_page = {str(p.get('id')) for p in posts if p.get('id')}
+            if self.logger:
+                self.logger.info(f"第 {page} 页帖子数={len(posts)}，可识别ID数={len(ids_on_page)}")
+            new_ids = ids_on_page - existing_ids
+
+            if not new_ids:
+                if self.logger:
+                    self.logger.info("该页全部 ID 已存在，停止继续翻页")
+                break
+
+            new_posts = [p for p in posts if str(p.get('id')) in new_ids]
+            if self.logger:
+                self.logger.info(f"第 {page} 页新增 {len(new_posts)} 条")
+
+            # 为新帖子获取内容
+            if self.logger:
+                self.logger.info(f"开始获取 {len(new_posts)} 个新帖子的详细内容...")
+            
+            for i, post in enumerate(new_posts, 1):
+                if post.get('url'):
+                    if self.logger:
+                        self.logger.info(f"获取内容 [{i}/{len(new_posts)}]: 帖子ID={post.get('id')}")
+                    
+                    content = self._fetch_post_content(post['url'])
+                    post['content'] = content
+                    
+                    if self.logger:
+                        if content:
+                            self.logger.info(f"✓ 成功获取内容: {len(content)} 字符")
+                        else:
+                            self.logger.warning(f"✗ 未能获取到内容")
+
+            all_new_posts.extend(new_posts)
+            existing_ids.update(ids_on_page)
+
+            page += 1
+            if delay_seconds and delay_seconds > 0:
+                try:
+                    import time
+                    time.sleep(delay_seconds)
+                except Exception:
+                    pass
+
+        if all_new_posts:
+            inserted = self._insert_posts(all_new_posts)
+            if self.logger:
+                self.logger.info(f"已插入/更新 {inserted} 条")
+        else:
+            if self.logger:
+                self.logger.info("无新增数据，无需入库")
+
     def run(self) -> None:
-        """运行博牛爬虫的主要逻辑"""
-        posts = self.crawl_forum_posts()
-        if posts:
-            self.save_data(posts, "boniu_forum_posts.json")
+        """运行博牛爬虫的主要逻辑（分页入库）"""
+        self.crawl_paginated_and_store()
