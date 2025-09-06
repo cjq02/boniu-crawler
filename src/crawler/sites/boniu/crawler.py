@@ -3,6 +3,7 @@
 import os
 import json
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
@@ -14,6 +15,7 @@ from ...core.requests_impl import RequestsCrawler
 from ...utils.parser import clean_text, extract_number
 from ...utils.http import format_datetime
 from ...utils.db import get_db_config, connect, fetch_all, executemany
+from ...utils.image_downloader import ImageDownloader
 
 
 def _extract_text(result: Any) -> Optional[str]:
@@ -36,6 +38,7 @@ class BoniuCrawler(RequestsCrawler):
     # 配置常量
     DEFAULT_MAX_PAGES = 1
     DEFAULT_DELAY_SECONDS = 1.0
+    DEFAULT_IMG_SAVE_PATH = r"D:\me\epiboly\fuye\resource\img\boniu"
     
     def __init__(self):
         super().__init__("boniu_crawler")
@@ -50,6 +53,12 @@ class BoniuCrawler(RequestsCrawler):
         # DB 配置（可通过环境变量覆盖）
         self.db_cfg = get_db_config()
         self.table_name = "ims_mdkeji_im_boniu_forum_post"
+        
+        # 初始化图片下载器
+        self.image_downloader = ImageDownloader(
+            base_path=self.DEFAULT_IMG_SAVE_PATH,
+            logger=self.logger
+        )
 
     def _setup_headers(self):
         """设置博牛社区特定的请求头"""
@@ -348,6 +357,7 @@ class BoniuCrawler(RequestsCrawler):
                 self.logger.warning(f"获取帖子内容失败 {post_url}: {e}")
             return "", []
 
+
     # ========= 分页爬取 + 去重 + 入库 =========
 
     def _get_existing_ids(self) -> set:
@@ -480,11 +490,17 @@ class BoniuCrawler(RequestsCrawler):
                     
                     content, images = self._fetch_post_content(post['url'])
                     post['content'] = content
-                    post['images'] = images  # 更新图片列表为内容页的图片
+                    
+                    # 下载图片到本地
+                    if images:
+                        local_images = self.image_downloader.download_images(images)
+                        post['images'] = local_images  # 更新为本地图片路径
+                    else:
+                        post['images'] = []  # 没有图片
                     
                     if self.logger:
                         if content:
-                            self.logger.info(f"✓ 成功获取内容: {len(content)} 字符, {len(images)} 张图片")
+                            self.logger.info(f"✓ 成功获取内容: {len(content)} 字符")
                         else:
                             self.logger.warning(f"✗ 未能获取到内容")
 
