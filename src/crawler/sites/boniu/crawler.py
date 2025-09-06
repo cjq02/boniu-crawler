@@ -137,11 +137,14 @@ class BoniuCrawler(RequestsCrawler):
 
         # 发帖时间
         publish_time = ""
+        # 优先获取有title属性的span
         for span in row.find_all('span', title=True):
             t = span.get('title', '')
             if re.search(r'\d{4}-\d{1,2}-\d{1,2}', t):
                 publish_time = t
                 break
+        
+        # 如果没有找到title，则获取span的文本内容
         if not publish_time:
             for span in row.find_all('span'):
                 text = clean_text(span.get_text())
@@ -172,7 +175,12 @@ class BoniuCrawler(RequestsCrawler):
                 break
 
         # 标识
-        is_sticky = bool(row.find('img', alt=re.compile(r'置顶|sticky|top')))
+        is_sticky = False
+        # 检查置顶图片：static/image/common/pin_*.gif
+        sticky_img = row.find('img', src=re.compile(r'static/image/common/pin_.*\.gif'))
+        if sticky_img:
+            is_sticky = True
+            
         is_essence = bool(row.find('img', alt=re.compile(r'精华|essence|hot')))
 
         return {
