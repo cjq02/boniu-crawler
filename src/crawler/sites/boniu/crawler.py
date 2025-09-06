@@ -36,7 +36,7 @@ class BoniuCrawler(RequestsCrawler):
     """博牛社区爬虫"""
     
     # 配置常量
-    DEFAULT_MAX_PAGES = 1
+    DEFAULT_MAX_PAGES = 2
     DEFAULT_DELAY_SECONDS = 1.0
     DEFAULT_IMG_SAVE_PATH = r"D:\me\epiboly\fuye\resource\img\boniu"
     
@@ -48,7 +48,7 @@ class BoniuCrawler(RequestsCrawler):
             if not self.logger.handlers:
                 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s %(name)s: %(message)s')
         self.base_url = "https://bbs.boniu123.cc"
-        self.forum_url = "https://bbs.boniu123.cc/forum-89-1.html"
+        self.forum_url = "https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&typeid=909&typeid=909&filter=typeid&page=1"
         self._setup_headers()
         # DB 配置（可通过环境变量覆盖）
         self.db_cfg = get_db_config()
@@ -121,9 +121,23 @@ class BoniuCrawler(RequestsCrawler):
 
         # 帖子ID
         post_id = None
-        m = re.search(r'thread-(\d+)', post_url)
-        if m:
-            post_id = m.group(1)
+        # 优先从tbody的id属性中提取
+        tbody = row.find_parent('tbody')
+        if tbody and tbody.get('id'):
+            m = re.search(r'normalthread_(\d+)', tbody.get('id'))
+            if m:
+                post_id = m.group(1)
+        
+        # 如果没找到，从URL中提取
+        if not post_id:
+            m = re.search(r'thread-(\d+)', post_url)
+            if m:
+                post_id = m.group(1)
+            # 从viewthread URL中提取tid
+            if not post_id:
+                m = re.search(r'tid=(\d+)', post_url)
+                if m:
+                    post_id = m.group(1)
 
         # 用户名
         username = None
@@ -455,7 +469,7 @@ class BoniuCrawler(RequestsCrawler):
         page = 1
         while page <= max_pages:
             # 构造分页 URL
-            self.forum_url = f"https://bbs.boniu123.cc/forum-89-{page}.html"
+            self.forum_url = f"https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&typeid=909&typeid=909&filter=typeid&page={page}"
             if self.logger:
                 self.logger.info(f"爬取第 {page} 页: {self.forum_url}")
 
