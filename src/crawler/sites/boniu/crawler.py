@@ -34,7 +34,7 @@ class BoniuCrawler(RequestsCrawler):
     """博牛社区爬虫"""
     
     # 配置常量
-    DEFAULT_MAX_PAGES = 2
+    DEFAULT_MAX_PAGES = 1
     DEFAULT_DELAY_SECONDS = 1.0
     
     def __init__(self):
@@ -160,11 +160,8 @@ class BoniuCrawler(RequestsCrawler):
         if view_el:
             view_count = self._parse_view_count(clean_text(view_el.get_text()))
 
-        # 图片
+        # 图片（列表页不爬取图片，只爬取内容页的图片）
         images: List[str] = []
-        for img in row.find_all('img', src=True):
-            if re.search(r'attachment|image|\.jpg|\.png|\.gif', img['src'], re.I):
-                images.append(urljoin(self.base_url, img['src']))
 
         # 分类
         category = ""
@@ -195,8 +192,12 @@ class BoniuCrawler(RequestsCrawler):
             'content': '',  # 初始为空，后续通过详情页获取
         }
 
-    def _fetch_post_content(self, post_url: str) -> str:
-        """获取帖子详情页内容"""
+    def _fetch_post_content(self, post_url: str) -> tuple[str, List[str]]:
+        """获取帖子详情页内容和图片
+        
+        Returns:
+            tuple: (content, images) - 内容文本和图片URL列表
+        """
         try:
             if self.logger:
                 self.logger.debug(f"获取帖子内容: {post_url}")
@@ -204,7 +205,20 @@ class BoniuCrawler(RequestsCrawler):
             resp = self.crawl_url(post_url)
             html = _extract_text(resp)
             if not html:
-                return ""
+                return "", []
+            
+            # 调试：保存内容页HTML（仅第一个帖子）
+            if self.logger and not hasattr(self, '_debug_saved'):
+                try:
+                    import os
+                    debug_dir = "data/debug"
+                    os.makedirs(debug_dir, exist_ok=True)
+                    with open(f"{debug_dir}/content_page.html", "w", encoding="utf-8") as f:
+                        f.write(html)
+                    self.logger.info(f"调试：已保存内容页HTML到 {debug_dir}/content_page.html")
+                    self._debug_saved = True
+                except Exception as e:
+                    self.logger.warning(f"保存调试HTML失败: {e}")
             
             soup = BeautifulSoup(html, 'html.parser')
             
@@ -220,9 +234,12 @@ class BoniuCrawler(RequestsCrawler):
                 'div.thread_content',  # 线程内容区域
                 'div[id*="postmessage"]',  # 包含postmessage的ID
                 'div[class*="postmessage"]',  # 包含postmessage的class
+                'td.t_f',  # 表格中的内容区域
+                'td[id*="postmessage"]',  # 表格中的postmessage
             ]
             
             content = ""
+            content_element = None
             for selector in content_selectors:
                 content_el = soup.select_one(selector)
                 if content_el:
@@ -231,15 +248,97 @@ class BoniuCrawler(RequestsCrawler):
                         script.decompose()
                     content = clean_text(content_el.get_text())
                     if content:
+                        content_element = content_el
+                        if self.logger:
+                            self.logger.debug(f"找到内容区域: {selector}")
                         break
             
+            # 从内容区域提取图片
+            images: List[str] = []
+            if content_element:
+                # 查找所有图片标签
+                all_imgs = content_element.find_all('img', src=True)
+                if self.logger:
+                    self.logger.debug(f"内容区域找到 {len(all_imgs)} 个图片标签")
+                
+                for img in all_imgs:
+                    # 博牛论坛特殊处理：优先获取zoomfile或file属性
+                    img_url = None
+                    
+                    # 检查zoomfile属性（博牛论坛的真实图片URL）
+                    if img.get('zoomfile'):
+                        img_url = img.get('zoomfile')
+                        if self.logger:
+                            self.logger.debug(f"找到zoomfile图片: {img_url}")
+                    # 检查file属性（备用真实图片URL）
+                    elif img.get('file'):
+                        img_url = img.get('file')
+                        if self.logger:
+                            self.logger.debug(f"找到file图片: {img_url}")
+                    # 最后检查src属性
+                    elif img.get('src'):
+                        img_src = img.get('src')
+                        if self.logger:
+                            self.logger.debug(f"检查src图片: {img_src}")
+                        
+                        # 过滤掉无效图片
+                        invalid_patterns = [
+                            r'none\.gif',  # 占位图片
+                            r'blank\.gif',  # 空白图片
+                            r'loading\.gif',  # 加载图片
+                            r'spacer\.gif',  # 间距图片
+                            r'pixel\.gif',  # 像素图片
+                            r'1x1\.gif',  # 1x1像素图片
+                            r'clear\.gif',  # 清除图片
+                            r'static/image/common/',  # 通用静态图片
+                            r'static/image/diy/',  # DIY图片
+                            r'static/image/',  # 静态图片
+                        ]
+                        
+                        # 检查是否为无效图片
+                        is_invalid = any(re.search(pattern, img_src, re.I) for pattern in invalid_patterns)
+                        if is_invalid:
+                            if self.logger:
+                                self.logger.debug(f"跳过无效图片: {img_src}")
+                            continue
+                        
+                        # 检查是否为有效的内容图片
+                        valid_patterns = [
+                            r'attachment/',  # 附件图片
+                            r'data/attachment/',  # 数据附件
+                            r'uploads/',  # 上传图片
+                            r'images/',  # 图片目录
+                            r'\.jpg$|\.jpeg$|\.png$|\.gif$|\.webp$',  # 图片文件扩展名
+                        ]
+                        
+                        is_valid = any(re.search(pattern, img_src, re.I) for pattern in valid_patterns)
+                        if is_valid:
+                            img_url = img_src
+                        else:
+                            if self.logger:
+                                self.logger.debug(f"跳过非内容图片: {img_src}")
+                            continue
+                    
+                    # 处理找到的图片URL
+                    if img_url:
+                        # 如果是相对路径，转换为绝对路径
+                        if not img_url.startswith('http'):
+                            img_url = urljoin(self.base_url, img_url)
+                        
+                        # 避免重复添加
+                        if img_url not in images:
+                            images.append(img_url)
+                            if self.logger:
+                                self.logger.debug(f"添加图片: {img_url}")
+            
             # 限制长度避免过长
-            return content[:65535] if content else ""
+            content = content[:65535] if content else ""
+            return content, images
             
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"获取帖子内容失败 {post_url}: {e}")
-            return ""
+            return "", []
 
     # ========= 分页爬取 + 去重 + 入库 =========
 
@@ -261,11 +360,11 @@ class BoniuCrawler(RequestsCrawler):
         INSERT INTO `{self.table_name}` (
           `id`,`title`,`url`,`user_id`,`username`,`avatar_url`,
           `publish_time`,`reply_count`,`view_count`,`images`,`category`,
-          `is_sticky`,`is_essence`,`crawl_time`,`type`,`is_crawl`,`content`
+          `is_sticky`,`is_essence`,`crawl_time`,`type`,`is_crawl`,`content`,`uniacid`
         ) VALUES (
           %s,%s,%s,%s,%s,%s,
           %s,%s,%s,%s,%s,
-          %s,%s,%s,%s,%s,%s
+          %s,%s,%s,%s,%s,%s,%s
         )
         ON DUPLICATE KEY UPDATE
           `title`=VALUES(`title`),
@@ -283,7 +382,8 @@ class BoniuCrawler(RequestsCrawler):
           `crawl_time`=VALUES(`crawl_time`),
           `type`=VALUES(`type`),
           `is_crawl`=VALUES(`is_crawl`),
-          `content`=VALUES(`content`);
+          `content`=VALUES(`content`),
+          `uniacid`=VALUES(`uniacid`);
         """
         rows = []
         for p in posts:
@@ -307,6 +407,7 @@ class BoniuCrawler(RequestsCrawler):
                     (p.get('type') or '')[:50],
                     1 if p.get('is_crawl', 1) else 0,
                     (p.get('content') or '')[:65535],  # TEXT字段最大长度
+                    1,  # uniacid=1
                 )
             )
         if rows:
@@ -369,12 +470,13 @@ class BoniuCrawler(RequestsCrawler):
                     if self.logger:
                         self.logger.info(f"获取内容 [{i}/{len(new_posts)}]: 帖子ID={post.get('id')}")
                     
-                    content = self._fetch_post_content(post['url'])
+                    content, images = self._fetch_post_content(post['url'])
                     post['content'] = content
+                    post['images'] = images  # 更新图片列表为内容页的图片
                     
                     if self.logger:
                         if content:
-                            self.logger.info(f"✓ 成功获取内容: {len(content)} 字符")
+                            self.logger.info(f"✓ 成功获取内容: {len(content)} 字符, {len(images)} 张图片")
                         else:
                             self.logger.warning(f"✗ 未能获取到内容")
 
