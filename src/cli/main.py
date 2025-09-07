@@ -2,6 +2,7 @@
 
 import argparse
 import os
+from pathlib import Path
 from typing import Optional
 
 from ..crawler.sites.boniu.crawler import BoniuCrawler
@@ -43,6 +44,31 @@ def run(mode: str, output: Optional[str]) -> None:
     print(f"抓取完成，共 {len(posts)} 条；已保存到: {file_path}")
 
 
+def _load_env(env_name: str) -> None:
+    """根据 --env 加载 env.dev / env.prd 文件到环境变量
+
+    优先不覆盖已有环境变量。
+    """
+    filename = f"env.{env_name}"
+    candidate = Path(filename)
+    if not candidate.exists():
+        return
+    try:
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key and (key not in os.environ):
+                os.environ[key] = value
+    except Exception:
+        pass
+
+
 def main() -> None:
     """主函数"""
     parser = argparse.ArgumentParser(description="博牛社区论坛爬虫 CLI")
@@ -53,12 +79,20 @@ def main() -> None:
         help="运行模式：db=分页入库（默认），json=保存为文件",
     )
     parser.add_argument(
+        "--env",
+        choices=["dev", "prd"],
+        default=None,
+        help="加载环境变量文件：dev -> env.dev；prd -> env.prd",
+    )
+    parser.add_argument(
         "--output",
         "-o",
         help="输出文件路径（默认 data/boniu_forum_posts.json）",
         default=None,
     )
     args = parser.parse_args()
+    if args.env:
+        _load_env(args.env)
     run(args.mode, args.output)
 
 

@@ -38,8 +38,7 @@ class BoniuCrawler(RequestsCrawler):
     # 配置常量
     DEFAULT_MAX_PAGES = 2
     DEFAULT_DELAY_SECONDS = 1.0
-    # DEFAULT_IMG_SAVE_PATH = r"D:\me\epiboly\fuye\resource\img\boniu"
-    DEFAULT_IMG_SAVE_PATH = r"D:\me\epiboly\fuye\projects\im.fuye.io\attachment\images\boniu"
+    DEFAULT_FIDS = [89, 734]
     
     def __init__(self):
         super().__init__("boniu_crawler")
@@ -50,14 +49,17 @@ class BoniuCrawler(RequestsCrawler):
                 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s %(name)s: %(message)s')
         self.base_url = "https://bbs.boniu123.cc"
         self.forum_url = "https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&page=1"
+        self.fids = self.DEFAULT_FIDS[:]
         self._setup_headers()
         # DB 配置（可通过环境变量覆盖）
         self.db_cfg = get_db_config()
         self.table_name = "ims_mdkeji_im_boniu_forum_post"
         
         # 初始化图片下载器
+        # 通过环境变量控制图片基础路径；未提供时退回到项目目录下 images/boniu
+        img_base_path = os.getenv("BONIU_IMG_BASE_PATH") or os.path.join(os.getcwd(), "images", "boniu")
         self.image_downloader = ImageDownloader(
-            base_path=self.DEFAULT_IMG_SAVE_PATH,
+            base_path=img_base_path,
             logger=self.logger
         )
 
@@ -464,68 +466,70 @@ class BoniuCrawler(RequestsCrawler):
 
         all_new_posts: List[Dict[str, Any]] = []
 
-        page = 1
-        while page <= max_pages:
-            # 构造分页 URL
-            self.forum_url = f"https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&page={page}"
-            if self.logger:
-                self.logger.info(f"爬取第 {page} 页: {self.forum_url}")
-
-            posts = self.crawl_forum_posts()
-            if not posts:
+        # 遍历多个 fid 抓取
+        for fid in self.fids:
+            page = 1
+            while page <= max_pages:
+                # 构造分页 URL（根据 fid 与页码）
+                self.forum_url = f"https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid={fid}&page={page}"
                 if self.logger:
-                    self.logger.info("该页无数据，停止")
-                break
+                    self.logger.info(f"爬取(fid={fid}) 第 {page} 页: {self.forum_url}")
 
-            ids_on_page = {str(p.get('id')) for p in posts if p.get('id')}
-            if self.logger:
-                self.logger.info(f"第 {page} 页帖子数={len(posts)}，可识别ID数={len(ids_on_page)}")
-            new_ids = ids_on_page - existing_ids
+                posts = self.crawl_forum_posts()
+                if not posts:
+                    if self.logger:
+                        self.logger.info("该页无数据，停止当前fid")
+                    break
 
-            if not new_ids:
+                ids_on_page = {str(p.get('id')) for p in posts if p.get('id')}
                 if self.logger:
-                    self.logger.info("该页全部 ID 已存在，停止继续翻页")
-                break
+                    self.logger.info(f"(fid={fid}) 第 {page} 页帖子数={len(posts)}，可识别ID数={len(ids_on_page)}")
+                new_ids = ids_on_page - existing_ids
 
-            new_posts = [p for p in posts if str(p.get('id')) in new_ids]
-            if self.logger:
-                self.logger.info(f"第 {page} 页新增 {len(new_posts)} 条")
+                if not new_ids:
+                    if self.logger:
+                        self.logger.info("该页全部 ID 已存在，停止当前fid继续翻页")
+                    break
 
-            # 为新帖子获取内容
-            if self.logger:
-                self.logger.info(f"开始获取 {len(new_posts)} 个新帖子的详细内容...")
-            
-            for i, post in enumerate(new_posts, 1):
-                if post.get('url'):
-                    if self.logger:
-                        self.logger.info(f"获取内容 [{i}/{len(new_posts)}]: 帖子ID={post.get('id')}")
-                    
-                    content, images = self._fetch_post_content(post['url'])
-                    post['content'] = content
-                    
-                    # 下载图片到本地
-                    if images:
-                        local_images = self.image_downloader.download_images(images)
-                        post['images'] = local_images  # 更新为本地图片路径
-                    else:
-                        post['images'] = []  # 没有图片
-                    
-                    if self.logger:
-                        if content:
-                            self.logger.info(f"✓ 成功获取内容: {len(content)} 字符")
+                new_posts = [p for p in posts if str(p.get('id')) in new_ids]
+                if self.logger:
+                    self.logger.info(f"(fid={fid}) 第 {page} 页新增 {len(new_posts)} 条")
+
+                # 为新帖子获取内容
+                if self.logger:
+                    self.logger.info(f"开始获取 {len(new_posts)} 个新帖子的详细内容...")
+                
+                for i, post in enumerate(new_posts, 1):
+                    if post.get('url'):
+                        if self.logger:
+                            self.logger.info(f"获取内容 [{i}/{len(new_posts)}]: 帖子ID={post.get('id')}")
+                        
+                        content, images = self._fetch_post_content(post['url'])
+                        post['content'] = content
+                        
+                        # 下载图片到本地
+                        if images:
+                            local_images = self.image_downloader.download_images(images)
+                            post['images'] = local_images  # 更新为本地图片路径
                         else:
-                            self.logger.warning(f"✗ 未能获取到内容")
+                            post['images'] = []  # 没有图片
+                        
+                        if self.logger:
+                            if content:
+                                self.logger.info(f"✓ 成功获取内容: {len(content)} 字符")
+                            else:
+                                self.logger.warning(f"✗ 未能获取到内容")
 
-            all_new_posts.extend(new_posts)
-            existing_ids.update(ids_on_page)
+                all_new_posts.extend(new_posts)
+                existing_ids.update(ids_on_page)
 
-            page += 1
-            if delay_seconds and delay_seconds > 0:
-                try:
-                    import time
-                    time.sleep(delay_seconds)
-                except Exception:
-                    pass
+                page += 1
+                if delay_seconds and delay_seconds > 0:
+                    try:
+                        import time
+                        time.sleep(delay_seconds)
+                    except Exception:
+                        pass
 
         if all_new_posts:
             inserted = self._insert_posts(all_new_posts)
