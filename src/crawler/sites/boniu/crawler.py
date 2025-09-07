@@ -38,7 +38,8 @@ class BoniuCrawler(RequestsCrawler):
     # 配置常量
     DEFAULT_MAX_PAGES = 2
     DEFAULT_DELAY_SECONDS = 1.0
-    DEFAULT_IMG_SAVE_PATH = r"D:\me\epiboly\fuye\resource\img\boniu"
+    # DEFAULT_IMG_SAVE_PATH = r"D:\me\epiboly\fuye\resource\img\boniu"
+    DEFAULT_IMG_SAVE_PATH = r"D:\me\epiboly\fuye\projects\im.fuye.io\attachment\images\boniu"
     
     def __init__(self):
         super().__init__("boniu_crawler")
@@ -48,7 +49,7 @@ class BoniuCrawler(RequestsCrawler):
             if not self.logger.handlers:
                 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s %(name)s: %(message)s')
         self.base_url = "https://bbs.boniu123.cc"
-        self.forum_url = "https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&typeid=909&typeid=909&filter=typeid&page=1"
+        self.forum_url = "https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&page=1"
         self._setup_headers()
         # DB 配置（可通过环境变量覆盖）
         self.db_cfg = get_db_config()
@@ -203,6 +204,10 @@ class BoniuCrawler(RequestsCrawler):
         sticky_img = row.find('img', src=re.compile(r'static/image/common/pin_.*\.gif'))
         if sticky_img:
             is_sticky = True
+            
+        # 跳过置顶帖子
+        if is_sticky:
+            return None
             
         is_essence = bool(row.find('img', alt=re.compile(r'精华|essence|hot')))
 
@@ -378,8 +383,8 @@ class BoniuCrawler(RequestsCrawler):
         """读取库中已存在的帖子ID集合"""
         if self.logger:
             self.logger.info(f"查询已存在ID: 表={self.table_name}")
-        rows = fetch_all(f"SELECT id FROM `{self.table_name}` WHERE id IS NOT NULL")
-        existing = {str(row['id']) for row in rows}
+        rows = fetch_all(f"SELECT forum_post_id FROM `{self.table_name}` WHERE forum_post_id IS NOT NULL")
+        existing = {str(row['forum_post_id']) for row in rows}
         if self.logger:
             self.logger.info(f"已存在ID数量: {len(existing)}")
         return existing
@@ -390,7 +395,7 @@ class BoniuCrawler(RequestsCrawler):
             return 0
         sql = f"""
         INSERT INTO `{self.table_name}` (
-          `id`,`title`,`url`,`user_id`,`username`,`avatar_url`,
+          `forum_post_id`,`title`,`url`,`user_id`,`username`,`avatar_url`,
           `publish_time`,`reply_count`,`view_count`,`images`,`category`,
           `is_sticky`,`is_essence`,`crawl_time`,`type`,`is_crawl`,`content`,`uniacid`
         ) VALUES (
@@ -469,7 +474,7 @@ class BoniuCrawler(RequestsCrawler):
         page = 1
         while page <= max_pages:
             # 构造分页 URL
-            self.forum_url = f"https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&typeid=909&typeid=909&filter=typeid&page={page}"
+            self.forum_url = f"https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&page={page}"
             if self.logger:
                 self.logger.info(f"爬取第 {page} 页: {self.forum_url}")
 

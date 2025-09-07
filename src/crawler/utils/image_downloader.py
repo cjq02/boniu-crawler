@@ -42,19 +42,19 @@ class ImageDownloader:
             local_path: 绝对路径
             
         Returns:
-            相对路径格式，如：/boniu/20250109/image.jpg
+            相对路径格式，如：images/boniu/2025/9/11/image.jpg
         """
         try:
             # 获取相对于base_path的路径
             rel_path = os.path.relpath(local_path, self.base_path)
             # 转换为Unix风格路径并添加前缀
             unix_path = rel_path.replace(os.sep, '/')
-            return f"/boniu/{unix_path}"
+            return f"images/boniu/{unix_path}"
         except ValueError:
             # 如果路径不在base_path下，直接使用文件名
             filename = os.path.basename(local_path)
-            today = datetime.now().strftime("%Y%m%d")
-            return f"/boniu/{today}/{filename}"
+            today = datetime.now().strftime("%Y/%m/%d")
+            return f"images/boniu/{today}/{filename}"
     
     def download_image(self, img_url: str, save_path: str = None) -> Optional[str]:
         """
@@ -65,12 +65,12 @@ class ImageDownloader:
             save_path: 保存路径，如果为None则使用默认路径
             
         Returns:
-            相对路径格式的图片路径（如：/boniu/20250109/image.jpg），如果下载失败返回None
+            相对路径格式的图片路径（如：images/boniu/2025/9/11/image.jpg），如果下载失败返回None
         """
         try:
             if not save_path:
                 # 使用默认路径并按日期创建文件夹
-                today = datetime.now().strftime("%Y%m%d")
+                today = datetime.now().strftime("%Y/%m/%d")
                 save_path = os.path.join(self.base_path, today)
             
             # 确保目录存在
@@ -123,7 +123,7 @@ class ImageDownloader:
             save_path: 保存路径，如果为None则使用默认路径
             
         Returns:
-            相对路径格式的图片路径列表（如：/boniu/20250109/image.jpg）
+            相对路径格式的图片路径列表（如：images/boniu/2025/9/11/image.jpg）
         """
         local_images = []
         
@@ -152,8 +152,8 @@ class ImageDownloader:
     
     def get_today_path(self) -> str:
         """获取今天的保存路径（相对路径格式）"""
-        today = datetime.now().strftime("%Y%m%d")
-        return f"/boniu/{today}"
+        today = datetime.now().strftime("%Y/%m/%d")
+        return f"images/boniu/{today}"
     
     def __del__(self):
         """析构函数，关闭会话"""
