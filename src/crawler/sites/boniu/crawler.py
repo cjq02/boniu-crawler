@@ -72,14 +72,6 @@ class BoniuCrawler(RequestsCrawler):
             'Upgrade-Insecure-Requests': '1',
         })
 
-    def _parse_view_count(self, view_text: str) -> int:
-        """解析浏览数"""
-        if not view_text:
-            return 0
-        if '万' in view_text:
-            number = extract_number(view_text)
-            return int(number * 10000) if number else 0
-        return int(extract_number(view_text) or 0)
 
     def crawl_forum_posts(self) -> List[Dict[str, Any]]:
         """爬取论坛帖子列表"""
@@ -137,8 +129,8 @@ class BoniuCrawler(RequestsCrawler):
             # 从viewthread URL中提取tid
             if not post_id:
                 m = re.search(r'tid=(\d+)', post_url)
-        if m:
-            post_id = m.group(1)
+                if m:
+                    post_id = m.group(1)
 
         # 用户名
         username = None
@@ -176,16 +168,9 @@ class BoniuCrawler(RequestsCrawler):
                     publish_time = text
                     break
 
-        # 回复/浏览
+        # 回复/浏览（不抓取，默认0）
         reply_count = 0
-        reply_el = row.find('span', class_='replayNum')
-        if reply_el:
-            reply_count = int(extract_number(clean_text(reply_el.get_text())) or 0)
-        
         view_count = 0
-        view_el = row.find('span', class_='viewNum')
-        if view_el:
-            view_count = self._parse_view_count(clean_text(view_el.get_text()))
 
         # 图片（列表页不爬取图片，只爬取内容页的图片）
         images: List[str] = []
