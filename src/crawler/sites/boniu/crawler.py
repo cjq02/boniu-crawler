@@ -137,8 +137,8 @@ class BoniuCrawler(RequestsCrawler):
             # 从viewthread URL中提取tid
             if not post_id:
                 m = re.search(r'tid=(\d+)', post_url)
-                if m:
-                    post_id = m.group(1)
+        if m:
+            post_id = m.group(1)
 
         # 用户名
         username = None
@@ -211,6 +211,13 @@ class BoniuCrawler(RequestsCrawler):
             
         is_essence = bool(row.find('img', alt=re.compile(r'精华|essence|hot')))
 
+        # 从当前爬取的URL中提取fid参数值作为type
+        type_value = ""
+        if self.forum_url:
+            match = re.search(r'fid=(\d+)', self.forum_url)
+            if match:
+                type_value = match.group(1)
+
         return {
             'id': post_id,
             'title': title,
@@ -225,6 +232,7 @@ class BoniuCrawler(RequestsCrawler):
             'is_sticky': is_sticky,
             'is_essence': is_essence,
             'crawl_time': format_datetime(),
+            'fid': type_value,  # 存储fid值
             'content': '',  # 初始为空，后续通过详情页获取
         }
 
@@ -397,7 +405,7 @@ class BoniuCrawler(RequestsCrawler):
         INSERT INTO `{self.table_name}` (
           `forum_post_id`,`title`,`url`,`user_id`,`username`,`avatar_url`,
           `publish_time`,`reply_count`,`view_count`,`images`,`category`,
-          `is_sticky`,`is_essence`,`crawl_time`,`type`,`is_crawl`,`content`,`uniacid`
+          `is_sticky`,`is_essence`,`crawl_time`,`fid`,`is_crawl`,`content`,`uniacid`
         ) VALUES (
           %s,%s,%s,%s,%s,%s,
           %s,%s,%s,%s,%s,
@@ -417,7 +425,7 @@ class BoniuCrawler(RequestsCrawler):
           `is_sticky`=VALUES(`is_sticky`),
           `is_essence`=VALUES(`is_essence`),
           `crawl_time`=VALUES(`crawl_time`),
-          `type`=VALUES(`type`),
+          `fid`=VALUES(`fid`),
           `is_crawl`=VALUES(`is_crawl`),
           `content`=VALUES(`content`),
           `uniacid`=VALUES(`uniacid`);
@@ -441,7 +449,7 @@ class BoniuCrawler(RequestsCrawler):
                     1 if p.get('is_sticky') else 0,
                     1 if p.get('is_essence') else 0,
                     p.get('crawl_time') or None,
-                    (p.get('type') or '')[:50],
+                    (p.get('fid') or '')[:50],
                     1 if p.get('is_crawl', 1) else 0,
                     (p.get('content') or '')[:65535],  # TEXT字段最大长度
                     1,  # uniacid=1
