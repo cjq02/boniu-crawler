@@ -329,6 +329,7 @@ class RequestsCrawler(BaseCrawler):
             解析后的数据
         """
         content_type = response.headers.get('content-type', '').lower()
+        content_encoding = response.headers.get('content-encoding', '').lower()
         
         if 'application/json' in content_type:
             try:
@@ -336,8 +337,31 @@ class RequestsCrawler(BaseCrawler):
             except ValueError:
                 return response.text
         elif 'text/html' in content_type:
+            # 处理brotli压缩
+            if 'br' in content_encoding:
+                try:
+                    import brotli  # type: ignore
+                    decoded = brotli.decompress(response.content)
+                    try:
+                        return decoded.decode(response.encoding or 'utf-8', errors='ignore')
+                    except Exception:
+                        return decoded.decode('utf-8', errors='ignore')
+                except Exception:
+                    # 回退到requests的解码结果
+                    return response.text
             return response.text
         else:
+            # 其他类型也尽量返回文本
+            if 'br' in content_encoding:
+                try:
+                    import brotli  # type: ignore
+                    decoded = brotli.decompress(response.content)
+                    try:
+                        return decoded.decode(response.encoding or 'utf-8', errors='ignore')
+                    except Exception:
+                        return decoded.decode('utf-8', errors='ignore')
+                except Exception:
+                    return response.text
             return response.text
     
     def run(self) -> None:
