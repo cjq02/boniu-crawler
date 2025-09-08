@@ -72,6 +72,16 @@ class BoniuCrawler(RequestsCrawler):
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
+            'Referer': self.base_url,
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
         })
 
 
@@ -80,8 +90,25 @@ class BoniuCrawler(RequestsCrawler):
         if self.logger:
             self.logger.info(f"开始爬取论坛页面: {self.forum_url}")
         
+        # 先访问主页，模拟真实用户行为（含重试）
+        import time
+        homepage_ok = False
+        for i in range(2):
+            try:
+                if self.logger:
+                    self.logger.info("先访问主页建立会话...")
+                resp_home = self.crawl_url(self.base_url)
+                if _extract_text(resp_home):
+                    homepage_ok = True
+                    break
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"访问主页失败(第{i+1}次): {e}")
+            time.sleep(1)
+        
         # 添加重试机制
         max_retries = 3
+        html = None
         for attempt in range(max_retries):
             try:
                 resp = self.crawl_url(self.forum_url)
@@ -94,14 +121,30 @@ class BoniuCrawler(RequestsCrawler):
             except Exception as e:
                 if self.logger:
                     self.logger.warning(f"第 {attempt + 1} 次爬取失败: {e}")
-                if attempt < max_retries - 1:
-                    import time
-                    time.sleep(2)  # 重试前等待2秒
-                    continue
-                else:
+            if attempt < max_retries - 1:
+                time.sleep(3)
+
+        # 列表页失败时，切换备用静态路径 forum-<fid>-1.html 再试
+        if not html:
+            try:
+                fid_match = re.search(r'fid=(\d+)', self.forum_url)
+                if fid_match:
+                    alt_url = f"{self.base_url}/forum-{fid_match.group(1)}-1.html"
                     if self.logger:
-                        self.logger.error("爬取论坛页面失败")
-                    return []
+                        self.logger.info(f"主URL获取失败，尝试备用URL: {alt_url}")
+                    for attempt in range(max_retries):
+                        try:
+                            resp_alt = self.crawl_url(alt_url)
+                            html = _extract_text(resp_alt)
+                            if html:
+                                break
+                        except Exception as e:
+                            if self.logger:
+                                self.logger.warning(f"备用URL第 {attempt + 1} 次失败: {e}")
+                        time.sleep(2)
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"备用URL尝试异常: {e}")
         
         if not html:
             if self.logger:
