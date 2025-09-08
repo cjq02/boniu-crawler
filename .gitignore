@@ -49,7 +49,6 @@ data/
 *.json
 *.csv
 *.xlsx
-*.txt
 
 # Database
 *.db
