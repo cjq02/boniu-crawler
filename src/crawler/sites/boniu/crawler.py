@@ -131,8 +131,8 @@ class BoniuCrawler(RequestsCrawler):
             # 从viewthread URL中提取tid
             if not post_id:
                 m = re.search(r'tid=(\d+)', post_url)
-                if m:
-                    post_id = m.group(1)
+        if m:
+            post_id = m.group(1)
 
         # 用户名
         username = None
@@ -464,8 +464,6 @@ class BoniuCrawler(RequestsCrawler):
         if self.logger:
             self.logger.info(f"数据库已有 {len(existing_ids)} 条")
 
-        all_new_posts: List[Dict[str, Any]] = []
-
         # 遍历多个 fid 抓取
         for fid in self.fids:
             page = 1
@@ -520,7 +518,11 @@ class BoniuCrawler(RequestsCrawler):
                             else:
                                 self.logger.warning(f"✗ 未能获取到内容")
 
-                all_new_posts.extend(new_posts)
+                # 当前页插入数据库
+                if new_posts:
+                    inserted = self._insert_posts(new_posts)
+                    if self.logger:
+                        self.logger.info(f"(fid={fid}) 第 {page} 页已插入/更新 {inserted} 条")
                 existing_ids.update(ids_on_page)
 
                 page += 1
@@ -531,13 +533,8 @@ class BoniuCrawler(RequestsCrawler):
                     except Exception:
                         pass
 
-        if all_new_posts:
-            inserted = self._insert_posts(all_new_posts)
-            if self.logger:
-                self.logger.info(f"已插入/更新 {inserted} 条")
-        else:
-            if self.logger:
-                self.logger.info("无新增数据，无需入库")
+        if self.logger:
+            self.logger.info("分页抓取入库完成")
 
     def run(self) -> None:
         """运行博牛爬虫的主要逻辑（分页入库）"""
