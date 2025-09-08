@@ -75,6 +75,14 @@ coverage.xml
 .dmypy.json
 dmypy.json
 
+# Allow committing all files under prd_test
+!prd_test/
+!prd_test/**
+!prd_test/**/*.json
+!prd_test/**/*.csv
+!prd_test/**/*.xlsx
+!prd_test/**/*.html
+
 # Jupyter
 .ipynb_checkpoints
 
