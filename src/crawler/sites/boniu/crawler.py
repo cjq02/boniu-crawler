@@ -37,7 +37,7 @@ class BoniuCrawler(RequestsCrawler):
     
     # 配置常量
     DEFAULT_MAX_PAGES = 2
-    DEFAULT_DELAY_SECONDS = 1.0
+    DEFAULT_DELAY_SECONDS = 3.0  # 增加延迟时间
     DEFAULT_FIDS = [89, 734]
     
     def __init__(self):
@@ -80,8 +80,29 @@ class BoniuCrawler(RequestsCrawler):
         if self.logger:
             self.logger.info(f"开始爬取论坛页面: {self.forum_url}")
         
-        resp = self.crawl_url(self.forum_url)
-        html = _extract_text(resp)
+        # 添加重试机制
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                resp = self.crawl_url(self.forum_url)
+                html = _extract_text(resp)
+                if html:
+                    break
+                else:
+                    if self.logger:
+                        self.logger.warning(f"第 {attempt + 1} 次尝试获取HTML失败")
+            except Exception as e:
+                if self.logger:
+                    self.logger.warning(f"第 {attempt + 1} 次爬取失败: {e}")
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2)  # 重试前等待2秒
+                    continue
+                else:
+                    if self.logger:
+                        self.logger.error("爬取论坛页面失败")
+                    return []
+        
         if not html:
             if self.logger:
                 self.logger.error("爬取论坛页面失败")
@@ -131,8 +152,8 @@ class BoniuCrawler(RequestsCrawler):
             # 从viewthread URL中提取tid
             if not post_id:
                 m = re.search(r'tid=(\d+)', post_url)
-        if m:
-            post_id = m.group(1)
+                if m:
+                    post_id = m.group(1)
 
         # 用户名
         username = None
