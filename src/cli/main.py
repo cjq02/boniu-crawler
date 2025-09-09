@@ -14,7 +14,14 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def run(mode: str = "db", output: Optional[str] = None, pages: int = 2, overwrite: bool = False) -> None:
+def run(
+    mode: str = "db",
+    output: Optional[str] = None,
+    pages: int = 2,
+    overwrite: bool = False,
+    fid: Optional[int] = None,
+    post_id: Optional[int] = None,
+) -> None:
     """运行博牛爬虫
 
     Args:
@@ -22,8 +29,29 @@ def run(mode: str = "db", output: Optional[str] = None, pages: int = 2, overwrit
         output: 当 mode=json 时的输出文件路径
         pages: 最大爬取页数，默认为2
         overwrite: 是否覆盖数据库中已存在的记录，默认为False
+        fid: 仅抓取指定的版块ID（fid）
+        post_id: 仅抓取指定的帖子ID（thread id），用于快速调试
     """
     crawler = BoniuCrawler()
+    # 覆盖 fid 列表（若提供）
+    if fid is not None:
+        crawler.fids = [fid]
+
+    # 若提供 post_id，则直接抓取该帖子详情，保存到 data/debug 后返回
+    if post_id is not None:
+        from pathlib import Path
+        thread_url = f"https://bbs.boniu123.cc/thread-{post_id}-1-1.html"
+        content, images = crawler._fetch_post_content(thread_url)
+        debug_dir = Path("data/debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        (debug_dir / f"thread_{post_id}_clean.txt").write_text(content or "", encoding="utf-8")
+        import json as _json
+        (debug_dir / f"thread_{post_id}_images.json").write_text(
+            _json.dumps(images or [], ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"已保存: {debug_dir}/thread_{post_id}_clean.txt")
+        print(f"已保存: {debug_dir}/thread_{post_id}_images.json")
+        return
     if mode == "db":
         print(f"开始分页抓取并保存到数据库... (最大页数: {pages}, 覆盖模式: {overwrite})")
         crawler.crawl_paginated_and_store(max_pages=pages, overwrite=overwrite)
@@ -103,10 +131,22 @@ def main() -> None:
         action="store_true",
         help="覆盖数据库中已存在的记录（默认不覆盖）",
     )
+    parser.add_argument(
+        "--fid",
+        type=int,
+        help="仅抓取指定的版块ID（fid）",
+        default=None,
+    )
+    parser.add_argument(
+        "--post-id",
+        type=int,
+        help="仅抓取指定的帖子ID（thread id），会保存清洗结果到 data/debug",
+        default=None,
+    )
     args = parser.parse_args()
     if args.env:
         _load_env(args.env)
-    run(args.mode, args.output, args.pages, args.overwrite)
+    run(args.mode, args.output, args.pages, args.overwrite, args.fid, args.post_id)
 
 
 if __name__ == "__main__":

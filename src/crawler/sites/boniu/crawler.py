@@ -3,16 +3,14 @@
 import os
 import json
 import re
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 import logging
-import pymysql
 
 from ...core.requests_impl import RequestsCrawler
-from ...utils.parser import clean_text, extract_number
+from ...utils.parser import clean_text
 from ...utils.http import format_datetime
 from ...utils.db import get_db_config, connect, fetch_all, executemany
 from ...utils.image_downloader import ImageDownloader
@@ -304,23 +302,14 @@ class BoniuCrawler(RequestsCrawler):
             if not html:
                 return "", []
             
-            # 调试：保存内容页HTML（仅第一个帖子）
-            if self.logger and not hasattr(self, '_debug_saved'):
-                try:
-                    import os
-                    debug_dir = "data/debug"
-                    os.makedirs(debug_dir, exist_ok=True)
-                    with open(f"{debug_dir}/content_page.html", "w", encoding="utf-8") as f:
-                        f.write(html)
-                    self.logger.info(f"调试：已保存内容页HTML到 {debug_dir}/content_page.html")
-                    self._debug_saved = True
-                except Exception as e:
-                    self.logger.warning(f"保存调试HTML失败: {e}")
+            # 可选：如需调试可在此保存HTML
             
             soup = BeautifulSoup(html, 'html.parser')
             
             # 尝试多种选择器获取帖子内容（博牛论坛特定）
             content_selectors = [
+                'td.t_f[id^="postmessage_"]',
+                '#postlist div[id^="post_"]:not([id$="_li"]) td.t_f',
                 'div.t_f',  # Discuz论坛常见的内容区域
                 'div.t_fsz',  # Discuz论坛内容区域
                 'div.postmessage',  # 帖子消息区域
@@ -343,6 +332,79 @@ class BoniuCrawler(RequestsCrawler):
                     # 移除脚本和样式标签
                     for script in content_el(["script", "style"]):
                         script.decompose()
+                    # 先提取将被排除节点中的图片（如 ignore_js_op 内的附件图片）
+                    try:
+                        pre_images: List[str] = []
+                        # 目标区域：class 为 ignore_js_op 或标签 <ignore_js_op>
+                        pre_nodes = []
+                        try:
+                            pre_nodes.extend(content_el.select('.ignore_js_op'))
+                        except Exception:
+                            pass
+                        try:
+                            pre_nodes.extend(content_el.find_all(True, class_=re.compile(r'(?:^|\\s)ignore_js_op(?:\\s|$)')))
+                        except Exception:
+                            pass
+                        try:
+                            pre_nodes.extend(content_el.find_all('ignore_js_op'))
+                        except Exception:
+                            pass
+                        for n in pre_nodes:
+                            for img in n.find_all('img'):
+                                img_url = None
+                                if img.get('zoomfile'):
+                                    img_url = img.get('zoomfile')
+                                elif img.get('file'):
+                                    img_url = img.get('file')
+                                elif img.get('src'):
+                                    img_url = img.get('src')
+                                if img_url:
+                                    if not img_url.startswith('http'):
+                                        img_url = urljoin(self.base_url, img_url)
+                                    if img_url not in pre_images:
+                                        pre_images.append(img_url)
+
+                    except Exception:
+                        pre_images = []
+
+                    # 先移除可能的附件容器与相关节点（Discuz 常见结构）
+                    try:
+                        attachment_selectors = [
+                            'div.pattl', 'div.pattc', 'div.attach', 'div.attnm', 'p.attnm',
+                            'dl.tattl', 'ul.attlist', 'div.attlist', 'table.attnm', 'span.attprice',
+                            'div.mbm', 'div.mbn', 'div.mtm', 'span.xg1', 'em.xg1',
+                            '.ignore_js_op',
+                            'ignore_js_op'
+                        ]
+                        for sel in attachment_selectors:
+                            for node in content_el.select(sel):
+                                node.decompose()
+                        # 兼容移除：通过 class 正则匹配 ignore_js_op（避免选择器遗漏）
+                        for node in content_el.find_all(True, class_=re.compile(r'(?:^|\s)ignore_js_op(?:\s|$)')):
+                            try:
+                                node.decompose()
+                            except Exception:
+                                pass
+                        # 兼容移除：通过标签名直接移除 <ignore_js_op>
+                        for node in content_el.find_all('ignore_js_op'):
+                            try:
+                                node.decompose()
+                            except Exception:
+                                pass
+                        # 根据文本关键字移除包含附件信息的节点
+                        text_patterns = re.compile(r"下载附件|保存到相册|下载次数|\\.(?:png|jpg|jpeg|gif|webp)(?:\\s*\\([^)]+\\))?|上传\\s*$", re.I)
+                        for txt in content_el.find_all(string=text_patterns):
+                            parent = txt.parent
+                            # 尽量删除包含该文本的一整块
+                            container = parent.find_parent(["p", "div", "li", "td", "span"]) if parent else None
+                            if container:
+                                container.decompose()
+                            elif parent:
+                                parent.decompose()
+                            else:
+                                txt.extract()
+                    except Exception:
+                        pass
                     content = clean_text(content_el.get_text())
                     if content:
                         content_element = content_el
@@ -350,9 +412,7 @@ class BoniuCrawler(RequestsCrawler):
                             self.logger.debug(f"找到内容区域: {selector}")
                         break
             
-            # 清理内容中的附件信息
-            if content:
-                content = self._clean_attachment_info(content)
+            # 保留内容原文（已做DOM级过滤）
             
             # 从内容区域提取图片
             images: List[str] = []
@@ -367,7 +427,7 @@ class BoniuCrawler(RequestsCrawler):
                     img_url = None
                     
                     # 检查zoomfile属性（博牛论坛的真实图片URL）
-                    if img.get('zoomfile'):
+                    if img.get('zoomfile'):  
                         img_url = img.get('zoomfile')
                         if self.logger:
                             self.logger.debug(f"找到zoomfile图片: {img_url}")
@@ -429,8 +489,16 @@ class BoniuCrawler(RequestsCrawler):
                         # 避免重复添加
                         if img_url not in images:
                             images.append(img_url)
-                            if self.logger:
-                                self.logger.debug(f"添加图片: {img_url}")
+
+            # 合并在 ignore_js_op 中预先提取到的图片
+            try:
+                for u in pre_images:
+                    if u not in images:
+                        images.append(u)
+            except Exception:
+                pass
+                if self.logger:
+                    self.logger.debug(f"添加图片: {img_url}")
             
             # 限制长度避免过长
             content = content[:65535] if content else ""
@@ -441,47 +509,7 @@ class BoniuCrawler(RequestsCrawler):
                 self.logger.warning(f"获取帖子内容失败 {post_url}: {e}")
             return "", []
 
-    def _clean_attachment_info(self, content: str) -> str:
-        """清理内容中的附件信息
-        
-        Args:
-            content: 原始内容文本
-            
-        Returns:
-            str: 清理后的内容文本
-        """
-        if not content:
-            return content
-        
-        # 定义需要清理的附件信息模式
-        patterns_to_remove = [
-            # 完整的附件信息：文件名 (大小) 下载次数: 数字 下载附件 保存到相册 时间 上传
-            r'[^\s]+\.(png|jpg|jpeg|gif|webp|pdf|zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx)\s*\([^)]+\)\s*下载次数:\s*\d+\s*下载附件\s*保存到相册\s*[^\s]+\s*上传',
-            # 文件名 (大小) 下载次数: 数字 下载附件 保存到相册 时间 上传
-            r'[^\s]+\.(png|jpg|jpeg|gif|webp|pdf|zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx)\s*\([^)]+\)\s*下载次数:\s*\d+\s*下载附件\s*保存到相册\s*[^\s]+\s*上传',
-            # 简化的模式：文件名 (大小) 下载次数: 数字
-            r'[^\s]+\.(png|jpg|jpeg|gif|webp|pdf|zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx)\s*\([^)]+\)\s*下载次数:\s*\d+',
-            # 文件名 (大小) 下载附件
-            r'[^\s]+\.(png|jpg|jpeg|gif|webp|pdf|zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx)\s*\([^)]+\)\s*下载附件',
-            # 保存到相册 时间 上传
-            r'保存到相册\s*[^\s]+\s*上传',
-            # 单独的下载附件
-            r'下载附件',
-            # 单独的保存到相册
-            r'保存到相册',
-            # 清理剩余的时间信息（如"半小时前"）
-            r'\s*[^\s]*前\s*',
-        ]
-        
-        cleaned_content = content
-        for pattern in patterns_to_remove:
-            cleaned_content = re.sub(pattern, '', cleaned_content, flags=re.IGNORECASE)
-        
-        # 清理多余的空格和换行
-        cleaned_content = re.sub(r'\s+', ' ', cleaned_content)
-        cleaned_content = cleaned_content.strip()
-        
-        return cleaned_content
+    # 已移除：仅保留DOM级过滤后的内容
 
 
     # ========= 分页爬取 + 去重 + 入库 =========
