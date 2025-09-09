@@ -8,6 +8,8 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 import logging
+from logging.handlers import RotatingFileHandler
+from datetime import datetime
 
 from ...core.requests_impl import RequestsCrawler
 from ...utils.parser import clean_text
@@ -46,6 +48,24 @@ class BoniuCrawler(RequestsCrawler):
             self.logger = logging.getLogger(self.name)
             if not self.logger.handlers:
                 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s %(name)s: %(message)s')
+        # 文件日志：logs/YYYY/MM/DD.log
+        try:
+            logs_root = os.path.join(os.getcwd(), 'logs')
+            year_str = datetime.now().strftime('%Y')
+            month_str = datetime.now().strftime('%m')
+            day_str = datetime.now().strftime('%d')
+            year_dir = os.path.join(logs_root, year_str)
+            month_dir = os.path.join(year_dir, month_str)
+            os.makedirs(month_dir, exist_ok=True)
+            log_file = os.path.join(month_dir, f'{day_str}.log')
+            has_file_handler = any(getattr(h, 'baseFilename', None) == log_file for h in self.logger.handlers)
+            if not has_file_handler:
+                file_handler = logging.FileHandler(log_file, encoding='utf-8')
+                file_handler.setLevel(logging.INFO)
+                file_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s'))
+                self.logger.addHandler(file_handler)
+        except Exception:
+            pass
         self.base_url = "https://bbs.boniu123.cc"
         self.forum_url = "https://bbs.boniu123.cc/forum.php?mod=forumdisplay&fid=89&page=1"
         self.fids = self.DEFAULT_FIDS[:]
