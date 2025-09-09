@@ -14,17 +14,18 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def run(mode: str, output: Optional[str]) -> None:
+def run(mode: str, output: Optional[str], max_pages: int = 2) -> None:
     """运行博牛爬虫
 
     Args:
         mode: 运行模式，db=分页入库；json=仅抓取并保存为 JSON
         output: 当 mode=json 时的输出文件路径
+        max_pages: 最大爬取页数，默认为2
     """
     crawler = BoniuCrawler()
     if mode == "db":
-        print("开始分页抓取并保存到数据库...")
-        crawler.crawl_paginated_and_store()
+        print(f"开始分页抓取并保存到数据库... (最大页数: {max_pages})")
+        crawler.crawl_paginated_and_store(max_pages=max_pages)
         print("分页抓取入库完成")
         return
 
@@ -90,10 +91,16 @@ def main() -> None:
         help="输出文件路径（默认 data/boniu_forum_posts.json）",
         default=None,
     )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=2,
+        help="最大爬取页数（默认 2）",
+    )
     args = parser.parse_args()
     if args.env:
         _load_env(args.env)
-    run(args.mode, args.output)
+    run(args.mode, args.output, args.max_pages)
 
 
 if __name__ == "__main__":
