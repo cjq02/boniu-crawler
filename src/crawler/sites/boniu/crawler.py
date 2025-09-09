@@ -524,7 +524,7 @@ class BoniuCrawler(RequestsCrawler):
             self.logger.info(f"已存在ID数量: {len(existing)}")
         return existing
 
-    def _insert_posts(self, posts: List[Dict[str, Any]]) -> int:
+    def _insert_posts(self, posts: List[Dict[str, Any]], overwrite: bool = False) -> int:
         """批量插入/更新帖子"""
         if not posts:
             return 0
@@ -559,37 +559,60 @@ class BoniuCrawler(RequestsCrawler):
         """
         rows = []
         for p in posts:
+            # 过滤掉无效或缺失的帖子ID，避免产生重复/脏数据
+            try:
+                pid = int(p.get('id') or 0)
+            except Exception:
+                pid = 0
+            if pid <= 0:
+                continue
             images_json = json.dumps(p.get('images') or [], ensure_ascii=False)
-            rows.append(
-                (
-                    int(p.get('id') or 0),
-                    (p.get('title') or '')[:255],
-                    (p.get('url') or '')[:512],
-                    None if p.get('user_id') in (None, '') else int(p.get('user_id')),
-                    (p.get('username') or '')[:100],
-                    (p.get('avatar_url') or None),
-                    p.get('publish_time') or None,
-                    int(p.get('reply_count') or 0),
-                    int(p.get('view_count') or 0),
-                    images_json,
-                    (p.get('category') or '')[:100],
-                    1 if p.get('is_sticky') else 0,
-                    1 if p.get('is_essence') else 0,
-                    p.get('crawl_time') or None,
-                    (p.get('fid') or '')[:50],
-                    1 if p.get('is_crawl', 1) else 0,
-                    (p.get('content') or '')[:65535],  # TEXT字段最大长度
-                    1,  # uniacid=1
+            if overwrite:
+                # Overwrite 模式：执行 UPDATE，仅更新指定字段
+                rows.append(
+                    (
+                        (p.get('title') or '')[:255],
+                        (p.get('content') or '')[:65535],
+                        images_json,
+                        pid,
+                    )
                 )
-            )
+            else:
+                rows.append(
+                    (
+                        pid,
+                        (p.get('title') or '')[:255],
+                        (p.get('url') or '')[:512],
+                        None if p.get('user_id') in (None, '') else int(p.get('user_id')),
+                        (p.get('username') or '')[:100],
+                        (p.get('avatar_url') or None),
+                        p.get('publish_time') or None,
+                        int(p.get('reply_count') or 0),
+                        int(p.get('view_count') or 0),
+                        images_json,
+                        (p.get('category') or '')[:100],
+                        1 if p.get('is_sticky') else 0,
+                        1 if p.get('is_essence') else 0,
+                        p.get('crawl_time') or None,
+                        (p.get('fid') or '')[:50],
+                        1 if p.get('is_crawl', 1) else 0,
+                        (p.get('content') or '')[:65535],  # TEXT字段最大长度
+                        1,  # uniacid=1
+                    )
+                )
         if rows:
             if self.logger:
                 self.logger.info(f"批量入库: 记录数={len(rows)} 表={self.table_name}")
-            affected = executemany(sql, rows)
+            if overwrite:
+                update_sql = f"UPDATE `{self.table_name}` SET `title`=%s, `content`=%s, `images`=%s, `updated_at`=NOW() WHERE `forum_post_id`=%s"
+                affected = executemany(update_sql, rows)
+            else:
+                affected = executemany(sql, rows)
             if self.logger:
                 self.logger.info(f"入库完成: 受影响行数≈{affected}")
             return len(rows)
         return 0
+
 
     def crawl_paginated_and_store(self, max_pages: int = None, delay_seconds: float = None, overwrite: bool = False) -> None:
         """分页爬取；若当前页所有帖子已存在则停止；最后插入新数据
@@ -676,9 +699,9 @@ class BoniuCrawler(RequestsCrawler):
                             else:
                                 self.logger.warning(f"✗ 未能获取到内容")
 
-                # 当前页插入数据库
+                # 当前页入库：覆盖模式走 UPDATE，否则 INSERT/UPDATE
                 if posts_to_process:
-                    inserted = self._insert_posts(posts_to_process)
+                    inserted = self._insert_posts(posts_to_process, overwrite=overwrite)
                     if self.logger:
                         self.logger.info(f"(fid={fid}) 第 {page} 页已插入/更新 {inserted} 条")
                 
