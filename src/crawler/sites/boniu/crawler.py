@@ -35,6 +35,7 @@ def _extract_text(result: Any) -> Optional[str]:
 class BoniuCrawler(RequestsCrawler):
     """博牛社区爬虫"""
     
+    
     # 配置常量
     DEFAULT_MAX_PAGES = 2
     DEFAULT_DELAY_SECONDS = 3.0  # 增加延迟时间
@@ -349,6 +350,10 @@ class BoniuCrawler(RequestsCrawler):
                             self.logger.debug(f"找到内容区域: {selector}")
                         break
             
+            # 清理内容中的附件信息
+            if content:
+                content = self._clean_attachment_info(content)
+            
             # 从内容区域提取图片
             images: List[str] = []
             if content_element:
@@ -436,6 +441,48 @@ class BoniuCrawler(RequestsCrawler):
                 self.logger.warning(f"获取帖子内容失败 {post_url}: {e}")
             return "", []
 
+    def _clean_attachment_info(self, content: str) -> str:
+        """清理内容中的附件信息
+        
+        Args:
+            content: 原始内容文本
+            
+        Returns:
+            str: 清理后的内容文本
+        """
+        if not content:
+            return content
+        
+        # 定义需要清理的附件信息模式
+        patterns_to_remove = [
+            # 完整的附件信息：文件名 (大小) 下载次数: 数字 下载附件 保存到相册 时间 上传
+            r'[^\s]+\.(png|jpg|jpeg|gif|webp|pdf|zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx)\s*\([^)]+\)\s*下载次数:\s*\d+\s*下载附件\s*保存到相册\s*[^\s]+\s*上传',
+            # 文件名 (大小) 下载次数: 数字 下载附件 保存到相册 时间 上传
+            r'[^\s]+\.(png|jpg|jpeg|gif|webp|pdf|zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx)\s*\([^)]+\)\s*下载次数:\s*\d+\s*下载附件\s*保存到相册\s*[^\s]+\s*上传',
+            # 简化的模式：文件名 (大小) 下载次数: 数字
+            r'[^\s]+\.(png|jpg|jpeg|gif|webp|pdf|zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx)\s*\([^)]+\)\s*下载次数:\s*\d+',
+            # 文件名 (大小) 下载附件
+            r'[^\s]+\.(png|jpg|jpeg|gif|webp|pdf|zip|rar|7z|doc|docx|xls|xlsx|ppt|pptx)\s*\([^)]+\)\s*下载附件',
+            # 保存到相册 时间 上传
+            r'保存到相册\s*[^\s]+\s*上传',
+            # 单独的下载附件
+            r'下载附件',
+            # 单独的保存到相册
+            r'保存到相册',
+            # 清理剩余的时间信息（如"半小时前"）
+            r'\s*[^\s]*前\s*',
+        ]
+        
+        cleaned_content = content
+        for pattern in patterns_to_remove:
+            cleaned_content = re.sub(pattern, '', cleaned_content, flags=re.IGNORECASE)
+        
+        # 清理多余的空格和换行
+        cleaned_content = re.sub(r'\s+', ' ', cleaned_content)
+        cleaned_content = cleaned_content.strip()
+        
+        return cleaned_content
+
 
     # ========= 分页爬取 + 去重 + 入库 =========
 
@@ -516,18 +563,29 @@ class BoniuCrawler(RequestsCrawler):
             return len(rows)
         return 0
 
-    def crawl_paginated_and_store(self, max_pages: int = None, delay_seconds: float = None) -> None:
-        """分页爬取；若当前页所有帖子已存在则停止；最后插入新数据"""
+    def crawl_paginated_and_store(self, max_pages: int = None, delay_seconds: float = None, overwrite: bool = False) -> None:
+        """分页爬取；若当前页所有帖子已存在则停止；最后插入新数据
+        
+        Args:
+            max_pages: 最大爬取页数
+            delay_seconds: 延迟秒数
+            overwrite: 是否覆盖已存在的记录
+        """
         # 使用默认值
         max_pages = max_pages or self.DEFAULT_MAX_PAGES
         delay_seconds = delay_seconds or self.DEFAULT_DELAY_SECONDS
         
         if self.logger:
-            self.logger.info(f"开始分页爬取并入库 (最大页数: {max_pages}, 延迟: {delay_seconds}秒)")
+            self.logger.info(f"开始分页爬取并入库 (最大页数: {max_pages}, 延迟: {delay_seconds}秒, 覆盖模式: {overwrite})")
 
-        existing_ids = self._get_existing_ids()
-        if self.logger:
-            self.logger.info(f"数据库已有 {len(existing_ids)} 条")
+        existing_ids = set()
+        if not overwrite:
+            existing_ids = self._get_existing_ids()
+            if self.logger:
+                self.logger.info(f"数据库已有 {len(existing_ids)} 条")
+        else:
+            if self.logger:
+                self.logger.info("覆盖模式：将处理所有帖子，包括已存在的记录")
 
         # 遍历多个 fid 抓取
         for fid in self.fids:
@@ -547,25 +605,32 @@ class BoniuCrawler(RequestsCrawler):
                 ids_on_page = {str(p.get('id')) for p in posts if p.get('id')}
                 if self.logger:
                     self.logger.info(f"(fid={fid}) 第 {page} 页帖子数={len(posts)}，可识别ID数={len(ids_on_page)}")
-                new_ids = ids_on_page - existing_ids
-
-                if not new_ids:
-                    if self.logger:
-                        self.logger.info("该页全部 ID 已存在，停止当前fid继续翻页")
-                    break
-
-                new_posts = [p for p in posts if str(p.get('id')) in new_ids]
-                if self.logger:
-                    self.logger.info(f"(fid={fid}) 第 {page} 页新增 {len(new_posts)} 条")
-
-                # 为新帖子获取内容
-                if self.logger:
-                    self.logger.info(f"开始获取 {len(new_posts)} 个新帖子的详细内容...")
                 
-                for i, post in enumerate(new_posts, 1):
+                # 根据覆盖模式决定处理哪些帖子
+                if overwrite:
+                    # 覆盖模式：处理所有帖子
+                    posts_to_process = posts
+                    if self.logger:
+                        self.logger.info(f"(fid={fid}) 第 {page} 页覆盖模式：处理所有 {len(posts_to_process)} 条")
+                else:
+                    # 非覆盖模式：只处理新帖子
+                    new_ids = ids_on_page - existing_ids
+                    if not new_ids:
+                        if self.logger:
+                            self.logger.info("该页全部 ID 已存在，停止当前fid继续翻页")
+                        break
+                    posts_to_process = [p for p in posts if str(p.get('id')) in new_ids]
+                    if self.logger:
+                        self.logger.info(f"(fid={fid}) 第 {page} 页新增 {len(posts_to_process)} 条")
+
+                # 为帖子获取内容
+                if self.logger:
+                    self.logger.info(f"开始获取 {len(posts_to_process)} 个帖子的详细内容...")
+                
+                for i, post in enumerate(posts_to_process, 1):
                     if post.get('url'):
                         if self.logger:
-                            self.logger.info(f"获取内容 [{i}/{len(new_posts)}]: 帖子ID={post.get('id')}")
+                            self.logger.info(f"获取内容 [{i}/{len(posts_to_process)}]: 帖子ID={post.get('id')}")
                         
                         content, images = self._fetch_post_content(post['url'])
                         post['content'] = content
@@ -584,11 +649,14 @@ class BoniuCrawler(RequestsCrawler):
                                 self.logger.warning(f"✗ 未能获取到内容")
 
                 # 当前页插入数据库
-                if new_posts:
-                    inserted = self._insert_posts(new_posts)
+                if posts_to_process:
+                    inserted = self._insert_posts(posts_to_process)
                     if self.logger:
                         self.logger.info(f"(fid={fid}) 第 {page} 页已插入/更新 {inserted} 条")
-                existing_ids.update(ids_on_page)
+                
+                # 更新已存在的ID集合（用于非覆盖模式）
+                if not overwrite:
+                    existing_ids.update(ids_on_page)
 
                 page += 1
                 if delay_seconds and delay_seconds > 0:

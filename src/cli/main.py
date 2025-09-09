@@ -14,18 +14,19 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def run(mode: str, output: Optional[str], max_pages: int = 2) -> None:
+def run(mode: str = "db", output: Optional[str] = None, pages: int = 2, overwrite: bool = False) -> None:
     """运行博牛爬虫
 
     Args:
-        mode: 运行模式，db=分页入库；json=仅抓取并保存为 JSON
+        mode: 运行模式，db=分页入库；json=仅抓取并保存为 JSON，默认为db
         output: 当 mode=json 时的输出文件路径
-        max_pages: 最大爬取页数，默认为2
+        pages: 最大爬取页数，默认为2
+        overwrite: 是否覆盖数据库中已存在的记录，默认为False
     """
     crawler = BoniuCrawler()
     if mode == "db":
-        print(f"开始分页抓取并保存到数据库... (最大页数: {max_pages})")
-        crawler.crawl_paginated_and_store(max_pages=max_pages)
+        print(f"开始分页抓取并保存到数据库... (最大页数: {pages}, 覆盖模式: {overwrite})")
+        crawler.crawl_paginated_and_store(max_pages=pages, overwrite=overwrite)
         print("分页抓取入库完成")
         return
 
@@ -82,8 +83,8 @@ def main() -> None:
     parser.add_argument(
         "--env",
         choices=["dev", "prd"],
-        default=None,
-        help="加载环境变量文件：dev -> env.dev；prd -> env.prd",
+        required=True,
+        help="加载环境变量文件：dev -> env.dev；prd -> env.prd（必传）",
     )
     parser.add_argument(
         "--output",
@@ -92,15 +93,20 @@ def main() -> None:
         default=None,
     )
     parser.add_argument(
-        "--max-pages",
+        "--pages",
         type=int,
         default=2,
         help="最大爬取页数（默认 2）",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="覆盖数据库中已存在的记录（默认不覆盖）",
+    )
     args = parser.parse_args()
     if args.env:
         _load_env(args.env)
-    run(args.mode, args.output, args.max_pages)
+    run(args.mode, args.output, args.pages, args.overwrite)
 
 
 if __name__ == "__main__":
