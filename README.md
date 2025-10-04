@@ -24,7 +24,7 @@
 
 ## 📦 技术栈
 
-- **Python**: 3.8+
+- **Python**: 3.11+
 - **Requests**: HTTP客户端
 - **BeautifulSoup4**: HTML解析
 - **PyMySQL**: MySQL数据库连接
@@ -266,9 +266,9 @@ python -c "from src.crawler.utils.image_downloader import ImageDownloader; downl
 ### 1. 服务器环境准备
 
 ```bash
-# 安装Python 3.8+
+# 安装Python 3.11+
 sudo apt update
-sudo apt install python3.8 python3.8-venv python3-pip
+sudo apt install python3.11 python3.11-venv python3-pip
 
 # 安装MySQL客户端
 sudo apt install mysql-client
@@ -284,7 +284,7 @@ scp -r boniu-crawler/ user@server:/path/to/project/
 cd /path/to/project/boniu-crawler
 
 # 创建虚拟环境
-python3.8 -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate
 
 # 安装依赖
