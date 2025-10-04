@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -99,54 +100,100 @@ def _load_env(env_name: str) -> None:
         pass
 
 
+def translate_history() -> None:
+    """翻译历史数据"""
+    # 导入翻译脚本
+    script_path = Path(__file__).parent.parent.parent / "scripts" / "translate_history_data.py"
+    if not script_path.exists():
+        print(f"错误: 找不到翻译脚本 {script_path}")
+        sys.exit(1)
+    
+    # 执行翻译脚本
+    import subprocess
+    subprocess.run([sys.executable, str(script_path)] + sys.argv[2:])
+
+
 def main() -> None:
     """主函数"""
     parser = argparse.ArgumentParser(description="博牛社区论坛爬虫 CLI")
-    parser.add_argument(
+    
+    # 添加子命令
+    subparsers = parser.add_subparsers(dest='command', help='子命令')
+    
+    # crawl 子命令（原有功能）
+    crawl_parser = subparsers.add_parser('crawl', help='爬取数据')
+    crawl_parser.add_argument(
         "--mode",
         choices=["db", "json"],
         default="db",
         help="运行模式：db=分页入库（默认），json=保存为文件",
     )
-    parser.add_argument(
+    crawl_parser.add_argument(
         "--env",
         choices=["dev", "prd"],
         required=True,
         help="加载环境变量文件：dev -> env.dev；prd -> env.prd（必传）",
     )
-    parser.add_argument(
+    crawl_parser.add_argument(
         "--output",
         "-o",
         help="输出文件路径（默认 data/boniu_forum_posts.json）",
         default=None,
     )
-    parser.add_argument(
+    crawl_parser.add_argument(
         "--pages",
         type=int,
         default=2,
         help="最大爬取页数（默认 2）",
     )
-    parser.add_argument(
+    crawl_parser.add_argument(
         "--overwrite",
         action="store_true",
         help="覆盖数据库中已存在的记录（默认不覆盖）",
     )
-    parser.add_argument(
+    crawl_parser.add_argument(
         "--fid",
         type=int,
         help="仅抓取指定的版块ID（fid）",
         default=None,
     )
-    parser.add_argument(
+    crawl_parser.add_argument(
         "--post-id",
         type=int,
         help="仅抓取指定的帖子ID（thread id），会保存清洗结果到 data/debug",
         default=None,
     )
+    
+    # translate 子命令（翻译历史数据）
+    translate_parser = subparsers.add_parser('translate', help='翻译历史数据')
+    translate_parser.add_argument('--batch-size', type=int, default=10, help='每批处理的记录数（默认10）')
+    translate_parser.add_argument('--delay', type=float, default=1.0, help='批次之间的延迟时间（秒，默认1.0）')
+    translate_parser.add_argument('--max-records', type=int, default=None, help='最大处理记录数（默认无限制）')
+    translate_parser.add_argument('--table', type=str, default='ims_mdkeji_im_boniu_forum_post', help='数据表名称')
+    translate_parser.add_argument('--stats', action='store_true', help='只显示统计信息')
+    translate_parser.add_argument(
+        "--env",
+        choices=["dev", "prd"],
+        required=True,
+        help="加载环境变量文件：dev -> env.dev；prd -> env.prd（必传）",
+    )
+    
     args = parser.parse_args()
-    if args.env:
+    
+    # 如果没有子命令，显示帮助
+    if not args.command:
+        parser.print_help()
+        sys.exit(0)
+    
+    # 加载环境变量
+    if hasattr(args, 'env') and args.env:
         _load_env(args.env)
-    run(args.mode, args.output, args.pages, args.overwrite, args.fid, args.post_id)
+    
+    # 执行对应的命令
+    if args.command == 'crawl':
+        run(args.mode, args.output, args.pages, args.overwrite, args.fid, args.post_id)
+    elif args.command == 'translate':
+        translate_history()
 
 
 if __name__ == "__main__":
