@@ -63,7 +63,7 @@ class HistoryDataTranslator:
         if limit:
             sql += f" LIMIT {limit} OFFSET {offset}"
         
-        rows = fetch_all(sql)
+        rows = list(fetch_all(sql))
         print(f"查询到 {len(rows)} 条未翻译记录")
         return rows
     
@@ -219,7 +219,7 @@ class HistoryDataTranslator:
         """
         # 总记录数
         total_sql = f"SELECT COUNT(*) as total FROM `{self.table_name}`"
-        total_rows = fetch_all(total_sql)
+        total_rows = list(fetch_all(total_sql))
         total = total_rows[0]['total'] if total_rows else 0
         
         # 已翻译记录数
@@ -228,7 +228,7 @@ class HistoryDataTranslator:
         WHERE title_en IS NOT NULL AND title_en != '' 
         AND content_en IS NOT NULL AND content_en != ''
         """
-        translated_rows = fetch_all(translated_sql)
+        translated_rows = list(fetch_all(translated_sql))
         translated = translated_rows[0]['translated'] if translated_rows else 0
         
         # 未翻译记录数
@@ -252,6 +252,7 @@ def main():
     parser.add_argument('--max-records', type=int, default=None, help='最大处理记录数（默认无限制）')
     parser.add_argument('--table', type=str, default='ims_mdkeji_im_boniu_forum_post', help='数据表名称')
     parser.add_argument('--stats', action='store_true', help='只显示统计信息')
+    parser.add_argument('--auto', action='store_true', help='自动模式，不需要用户确认')
     
     args = parser.parse_args()
     
@@ -277,7 +278,14 @@ def main():
                 return
             
             # 开始翻译
-            input(f"\n按回车键开始翻译（将处理最多 {args.max_records or '全部'} 条记录）...")
+            if not args.auto:
+                try:
+                    input(f"\n按回车键开始翻译（将处理最多 {args.max_records or '全部'} 条记录）...")
+                except (EOFError, KeyboardInterrupt):
+                    print("\n用户取消操作")
+                    return
+            else:
+                print(f"\n自动模式：开始翻译（将处理最多 {args.max_records or '全部'} 条记录）...")
             
             total = translator.translate_batch(
                 batch_size=args.batch_size,

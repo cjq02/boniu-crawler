@@ -13,6 +13,14 @@
 - **智能过滤**: 自动跳过置顶帖子，只爬取普通帖子
 - **环境配置**: 支持开发/生产环境配置
 
+### 🌐 智能翻译功能
+- **自动翻译**: 爬取时自动翻译标题和内容为英文
+- **批量翻译**: 支持历史数据的批量翻译
+- **多API支持**: 支持百度翻译和谷歌翻译API
+- **智能错误处理**: 翻译失败不影响数据保存
+- **灵活配置**: 可调整翻译参数和批次大小
+- **统计功能**: 实时查看翻译进度和统计信息
+
 ### 🛠️ 技术特性
 - **模块化设计**: 基于包结构的可扩展架构
 - **数据库集成**: 使用PyMySQL连接MySQL数据库
@@ -99,13 +107,75 @@ cat env.prd
 
 ```bash
 # 生产环境运行（默认--mode db）
-python main.py --env prd
+python main.py crawl --env prd
 
 # 开发环境运行
-python main.py --env dev
+python main.py crawl --env dev
 
 # 查看帮助
 python main.py --help
+```
+
+### 5. 翻译功能使用
+
+#### 添加数据库字段（首次使用）
+```sql
+-- 添加英文标题字段
+ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
+ADD COLUMN `title_en` VARCHAR(255) DEFAULT NULL COMMENT '英文标题' 
+AFTER `title`;
+
+-- 添加英文内容字段
+ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
+ADD COLUMN `content_en` TEXT DEFAULT NULL COMMENT '英文内容' 
+AFTER `content`;
+```
+
+#### 爬取时自动翻译
+```bash
+# 爬取新数据时自动翻译
+python main.py crawl --env dev --pages 2
+```
+
+#### 翻译历史数据
+```bash
+# 查看翻译统计
+python main.py translate --env dev --stats
+
+# 自动翻译历史数据
+python main.py translate --env dev --max-records 10 --batch-size 5 --auto
+
+# 翻译所有历史数据
+python main.py translate --env dev --batch-size 20 --delay 1.5 --auto
+```
+
+### 6. 翻译功能快速使用
+
+#### 首次使用翻译功能
+```bash
+# 1. 添加数据库字段（首次使用）
+mysql -h YOUR_HOST -u YOUR_USER -p YOUR_DATABASE < scripts/add_translation_fields.sql
+
+# 2. 查看翻译统计
+python main.py translate --env dev --stats
+
+# 3. 测试翻译（翻译5条记录）
+python main.py translate --env dev --max-records 5 --batch-size 2 --auto
+
+# 4. 批量翻译所有数据
+python main.py translate --env dev --batch-size 20 --delay 1.5 --auto
+```
+
+#### 日常使用
+```bash
+# 爬取新数据（自动翻译）
+python main.py crawl --env dev --pages 2
+
+# 查看翻译进度
+python main.py translate --env dev --stats
+
+# 翻译剩余数据
+python main.py translate --env dev --auto
 ```
 
 ## 📖 使用示例
@@ -113,11 +183,13 @@ python main.py --help
 ### 命令行使用
 
 ```bash
-# 生产环境运行
-python main.py --env prd
+# 爬取数据
+python main.py crawl --env prd
+python main.py crawl --env dev
 
-# 开发环境运行
-python main.py --env dev
+# 翻译功能
+python main.py translate --env dev --stats
+python main.py translate --env dev --max-records 10 --auto
 
 # 查看运行日志
 tail -f logs/crawler.log
@@ -139,6 +211,18 @@ LIMIT 10;
 SELECT fid, COUNT(*) as count 
 FROM ims_mdkeji_im_boniu_forum_post 
 GROUP BY fid;
+
+-- 查看翻译统计
+SELECT 
+    COUNT(*) as total,
+    SUM(CASE WHEN title_en IS NOT NULL AND title_en != '' THEN 1 ELSE 0 END) as translated
+FROM ims_mdkeji_im_boniu_forum_post;
+
+-- 查看翻译结果
+SELECT forum_post_id, title, title_en, LEFT(content, 50) as content, LEFT(content_en, 50) as content_en
+FROM ims_mdkeji_im_boniu_forum_post 
+WHERE title_en IS NOT NULL AND title_en != ''
+LIMIT 10;
 ```
 
 ## ⚙️ 配置说明
@@ -153,6 +237,30 @@ BONIU_IMG_BASE_PATH=D:\me\epiboly\fuye\projects\im.fuye.io\attachment\images\bon
 #### 生产环境 (env.prd)
 ```bash
 BONIU_IMG_BASE_PATH=D:\me\epiboly\fuye\resource\img\boniu
+```
+
+### 翻译功能配置
+
+#### 翻译器配置 (config/translator.yaml)
+```yaml
+translator:
+  default_provider: "baidu"
+  
+  baidu:
+    app_id: "20251002002468098"
+    secret_key: "h1Xn1ChdNWG7Xw15fbgy"
+    api_url: "https://fanyi-api.baidu.com/api/trans/vip/translate"
+    
+  google:
+    api_key: ""
+    api_url: "https://translation.googleapis.com/language/translate/v2"
+    
+  settings:
+    default_from_lang: "zh"
+    default_to_lang: "en"
+    timeout: 10
+    retry_count: 3
+    retry_interval: 1
 ```
 
 ### 数据库配置
@@ -189,8 +297,11 @@ CREATE TABLE `ims_mdkeji_im_boniu_forum_post` (
   `is_crawl` tinyint(1) DEFAULT 1 COMMENT '是否已爬取',
   `content` text COMMENT '帖子内容',
   `uniacid` int(11) NOT NULL DEFAULT 1 COMMENT '应用ID',
+  `title_en` varchar(255) DEFAULT NULL COMMENT '英文标题',
+  `content_en` text DEFAULT NULL COMMENT '英文内容',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `forum_post_id` (`forum_post_id`)
+  UNIQUE KEY `forum_post_id` (`forum_post_id`),
+  KEY `idx_title_en` (`title_en`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='博牛论坛帖子表';
 ```
 
@@ -215,6 +326,8 @@ CREATE TABLE `ims_mdkeji_im_boniu_forum_post` (
 - `is_crawl`: 是否已爬取（0/1）
 - `content`: 帖子正文内容
 - `uniacid`: 应用ID（默认1）
+- `title_en`: 英文标题（翻译功能）
+- `content_en`: 英文内容（翻译功能）
 
 ## 🖼️ 图片管理
 
@@ -371,11 +484,20 @@ crontab -e
 
 ## 📚 相关文档
 
+### 项目文档
+- [翻译功能使用指南](docs/translation_guide.md)
+- [翻译功能快速开始](TRANSLATION_QUICKSTART.md)
+- [翻译工具文档](docs/translator.md)
+- [翻译功能实现文档](docs/translation_implementation.md)
+
+### 技术文档
 - [Python 官方文档](https://docs.python.org/)
 - [Requests 文档](https://requests.readthedocs.io/)
 - [BeautifulSoup4 文档](https://www.crummy.com/software/BeautifulSoup/)
 - [PyMySQL 文档](https://pymysql.readthedocs.io/)
 - [python-dotenv 文档](https://python-dotenv.readthedocs.io/)
+- [百度翻译API文档](https://fanyi-api.baidu.com/doc/21)
+- [谷歌翻译API文档](https://cloud.google.com/translate/docs)
 
 ## 📄 许可证
 

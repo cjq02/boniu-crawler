@@ -110,7 +110,18 @@ def translate_history() -> None:
     
     # 执行翻译脚本
     import subprocess
-    subprocess.run([sys.executable, str(script_path)] + sys.argv[2:])
+    # 过滤掉 --env 参数，因为翻译脚本不需要
+    args = []
+    skip_next = False
+    for i, arg in enumerate(sys.argv[2:]):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == '--env':
+            skip_next = True
+            continue
+        args.append(arg)
+    subprocess.run([sys.executable, str(script_path)] + args)
 
 
 def main() -> None:
@@ -171,6 +182,7 @@ def main() -> None:
     translate_parser.add_argument('--max-records', type=int, default=None, help='最大处理记录数（默认无限制）')
     translate_parser.add_argument('--table', type=str, default='ims_mdkeji_im_boniu_forum_post', help='数据表名称')
     translate_parser.add_argument('--stats', action='store_true', help='只显示统计信息')
+    translate_parser.add_argument('--auto', action='store_true', help='自动模式，不需要用户确认')
     translate_parser.add_argument(
         "--env",
         choices=["dev", "prd"],
