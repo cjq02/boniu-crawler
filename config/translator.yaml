@@ -1,0 +1,28 @@
+# 翻译服务配置
+translator:
+  # 默认翻译服务提供商 (baidu/google)
+  default_provider: "baidu"
+  
+  # 百度翻译配置
+  baidu:
+    app_id: "20251002002468098"
+    secret_key: "h1Xn1ChdNWG7Xw15fbgy"
+    api_url: "https://fanyi-api.baidu.com/api/trans/vip/translate"
+    
+  # 谷歌翻译配置
+  google:
+    api_key: ""  # 需要设置您的谷歌翻译API密钥
+    api_url: "https://translation.googleapis.com/language/translate/v2"
+    
+  # 翻译设置
+  settings:
+    # 默认源语言 (auto表示自动检测)
+    default_from_lang: "auto"
+    # 默认目标语言
+    default_to_lang: "zh"
+    # 请求超时时间(秒)
+    timeout: 10
+    # 重试次数
+    retry_count: 3
+    # 重试间隔(秒)
+    retry_interval: 1
