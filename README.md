@@ -120,15 +120,25 @@ python main.py --help
 
 #### 添加数据库字段（首次使用）
 ```sql
+-- 添加中文标题字段
+ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
+ADD COLUMN `title_zh` VARCHAR(255) DEFAULT NULL COMMENT '中文标题' 
+AFTER `title`;
+
+-- 添加中文内容字段
+ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
+ADD COLUMN `content_zh` TEXT DEFAULT NULL COMMENT '中文内容' 
+AFTER `content`;
+
 -- 添加英文标题字段
 ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
 ADD COLUMN `title_en` VARCHAR(255) DEFAULT NULL COMMENT '英文标题' 
-AFTER `title`;
+AFTER `title_zh`;
 
 -- 添加英文内容字段
 ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
 ADD COLUMN `content_en` TEXT DEFAULT NULL COMMENT '英文内容' 
-AFTER `content`;
+AFTER `content_zh`;
 ```
 
 #### 爬取时自动翻译
@@ -215,13 +225,13 @@ GROUP BY fid;
 -- 查看翻译统计
 SELECT 
     COUNT(*) as total,
-    SUM(CASE WHEN title_en IS NOT NULL AND title_en != '' THEN 1 ELSE 0 END) as translated
+    SUM(CASE WHEN title_zh IS NOT NULL AND title_zh != '' AND title_en IS NOT NULL AND title_en != '' THEN 1 ELSE 0 END) as translated
 FROM ims_mdkeji_im_boniu_forum_post;
 
 -- 查看翻译结果
-SELECT forum_post_id, title, title_en, LEFT(content, 50) as content, LEFT(content_en, 50) as content_en
+SELECT forum_post_id, title, title_zh, title_en, LEFT(content, 50) as content, LEFT(content_zh, 50) as content_zh, LEFT(content_en, 50) as content_en
 FROM ims_mdkeji_im_boniu_forum_post 
-WHERE title_en IS NOT NULL AND title_en != ''
+WHERE title_zh IS NOT NULL AND title_zh != '' AND title_en IS NOT NULL AND title_en != ''
 LIMIT 10;
 ```
 
@@ -297,10 +307,13 @@ CREATE TABLE `ims_mdkeji_im_boniu_forum_post` (
   `is_crawl` tinyint(1) DEFAULT 1 COMMENT '是否已爬取',
   `content` text COMMENT '帖子内容',
   `uniacid` int(11) NOT NULL DEFAULT 1 COMMENT '应用ID',
+  `title_zh` varchar(255) DEFAULT NULL COMMENT '中文标题',
+  `content_zh` text DEFAULT NULL COMMENT '中文内容',
   `title_en` varchar(255) DEFAULT NULL COMMENT '英文标题',
   `content_en` text DEFAULT NULL COMMENT '英文内容',
   PRIMARY KEY (`id`),
   UNIQUE KEY `forum_post_id` (`forum_post_id`),
+  KEY `idx_title_zh` (`title_zh`),
   KEY `idx_title_en` (`title_en`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='博牛论坛帖子表';
 ```
@@ -324,8 +337,10 @@ CREATE TABLE `ims_mdkeji_im_boniu_forum_post` (
 - `crawl_time`: 爬取时间
 - `fid`: 版块ID（89或734）
 - `is_crawl`: 是否已爬取（0/1）
-- `content`: 帖子正文内容
+- `content`: 帖子正文内容（原文）
 - `uniacid`: 应用ID（默认1）
+- `title_zh`: 中文标题（翻译功能）
+- `content_zh`: 中文内容（翻译功能）
 - `title_en`: 英文标题（翻译功能）
 - `content_en`: 英文内容（翻译功能）
 

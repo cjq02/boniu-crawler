@@ -53,7 +53,7 @@ class HistoryDataTranslator:
             帖子列表
         """
         sql = f"""
-        SELECT forum_post_id, title, content 
+        SELECT forum_post_id, title, content, title_zh, content_zh, title_en, content_en
         FROM `{self.table_name}` 
         WHERE (title_en IS NULL OR title_en = '' OR content_en IS NULL OR content_en = '')
         AND title IS NOT NULL AND title != ''
@@ -106,12 +106,14 @@ class HistoryDataTranslator:
         
         sql = f"""
         UPDATE `{self.table_name}` 
-        SET title_en = %s, content_en = %s 
+        SET title_zh = %s, content_zh = %s, title_en = %s, content_en = %s 
         WHERE forum_post_id = %s
         """
         
         rows = [
             (
+                (p.get('title_zh') or '')[:255],
+                (p.get('content_zh') or '')[:65535],
                 (p.get('title_en') or '')[:255],
                 (p.get('content_en') or '')[:65535],
                 p['forum_post_id']
@@ -159,24 +161,38 @@ class HistoryDataTranslator:
             translated_posts = []
             for i, post in enumerate(posts, 1):
                 post_id = post['forum_post_id']
-                title = post['title'] or ''
-                content = post['content'] or ''
+                original_title = post['title'] or ''
+                original_content = post['content'] or ''
+                
+                # 获取已有的翻译
+                title_zh = post.get('title_zh') or ''
+                content_zh = post.get('content_zh') or ''
+                title_en = post.get('title_en') or ''
+                content_en = post.get('content_en') or ''
                 
                 print(f"  [{i}/{len(posts)}] ID: {post_id}")
                 
-                # 翻译标题
-                title_en = self.translate_text(title, 'zh', 'en')
-                print(f"    标题: {title[:50]} -> {title_en[:50]}")
+                # 如果没有中文翻译，使用原文作为中文
+                if not title_zh and original_title:
+                    title_zh = original_title
+                if not content_zh and original_content:
+                    content_zh = original_content
                 
-                # 翻译内容（长文本只翻译前1000字符）
-                if content:
-                    content_en = self.translate_text(content, 'zh', 'en')
-                    print(f"    内容: {len(content)} 字符 -> {len(content_en)} 字符")
-                else:
-                    content_en = ""
+                # 翻译标题为英文
+                if not title_en and title_zh:
+                    title_en = self.translate_text(title_zh, 'zh', 'en')
+                    print(f"    标题: {title_zh[:50]} -> {title_en[:50]}")
+                
+                # 翻译内容为英文（长文本只翻译前1000字符）
+                if not content_en and content_zh:
+                    content_to_translate = content_zh[:1000] if len(content_zh) > 1000 else content_zh
+                    content_en = self.translate_text(content_to_translate, 'zh', 'en')
+                    print(f"    内容: {len(content_zh)} 字符 -> {len(content_en)} 字符")
                 
                 translated_posts.append({
                     'forum_post_id': post_id,
+                    'title_zh': title_zh,
+                    'content_zh': content_zh,
                     'title_en': title_en,
                     'content_en': content_en
                 })
@@ -225,7 +241,9 @@ class HistoryDataTranslator:
         # 已翻译记录数
         translated_sql = f"""
         SELECT COUNT(*) as translated FROM `{self.table_name}` 
-        WHERE title_en IS NOT NULL AND title_en != '' 
+        WHERE title_zh IS NOT NULL AND title_zh != '' 
+        AND content_zh IS NOT NULL AND content_zh != ''
+        AND title_en IS NOT NULL AND title_en != '' 
         AND content_en IS NOT NULL AND content_en != ''
         """
         translated_rows = list(fetch_all(translated_sql))

@@ -587,12 +587,12 @@ class BoniuCrawler(RequestsCrawler):
           `forum_post_id`,`title`,`url`,`user_id`,`username`,`avatar_url`,
           `publish_time`,`reply_count`,`view_count`,`images`,`category`,
           `is_sticky`,`is_essence`,`crawl_time`,`fid`,`is_crawl`,`content`,`uniacid`,
-          `title_en`,`content_en`
+          `title_zh`,`content_zh`,`title_en`,`content_en`
         ) VALUES (
           %s,%s,%s,%s,%s,%s,
           %s,%s,%s,%s,%s,
           %s,%s,%s,%s,%s,%s,%s,
-          %s,%s
+          %s,%s,%s,%s
         )
         ON DUPLICATE KEY UPDATE
           `title`=VALUES(`title`),
@@ -612,6 +612,8 @@ class BoniuCrawler(RequestsCrawler):
           `is_crawl`=VALUES(`is_crawl`),
           `content`=VALUES(`content`),
           `uniacid`=VALUES(`uniacid`),
+          `title_zh`=VALUES(`title_zh`),
+          `content_zh`=VALUES(`content_zh`),
           `title_en`=VALUES(`title_en`),
           `content_en`=VALUES(`content_en`);
         """
@@ -625,33 +627,44 @@ class BoniuCrawler(RequestsCrawler):
             if pid <= 0:
                 continue
             images_json = json.dumps(p.get('images') or [], ensure_ascii=False)
-            # 翻译标题和内容
-            title = (p.get('title') or '')[:255]
-            content = (p.get('content') or '')[:65535]
+            # 获取原始数据
+            original_title = (p.get('title') or '')[:255]
+            original_content = (p.get('content') or '')[:65535]
             
+            # 初始化翻译字段
+            title_zh = p.get('title_zh') or ''
+            content_zh = p.get('content_zh') or ''
             title_en = p.get('title_en') or ''
             content_en = p.get('content_en') or ''
             
-            # 如果没有提供翻译，尝试自动翻译
-            if self.enable_translation and title and not title_en:
-                title_en = self._translate_text(title, 'zh', 'en')
-                if self.logger:
-                    self.logger.info(f"翻译标题: {title[:50]} -> {title_en[:50]}")
+            # 如果没有提供中文翻译，将原文作为中文
+            if not title_zh and original_title:
+                title_zh = original_title
+            if not content_zh and original_content:
+                content_zh = original_content
             
-            if self.enable_translation and content and not content_en:
+            # 如果没有提供英文翻译，尝试自动翻译
+            if self.enable_translation and title_zh and not title_en:
+                title_en = self._translate_text(title_zh, 'zh', 'en')
+                if self.logger:
+                    self.logger.info(f"翻译标题: {title_zh[:50]} -> {title_en[:50]}")
+            
+            if self.enable_translation and content_zh and not content_en:
                 # 对于长文本，截取前1000字符进行翻译
-                content_to_translate = content[:1000] if len(content) > 1000 else content
+                content_to_translate = content_zh[:1000] if len(content_zh) > 1000 else content_zh
                 content_en = self._translate_text(content_to_translate, 'zh', 'en')
                 if self.logger:
-                    self.logger.info(f"翻译内容: {len(content)} 字符")
+                    self.logger.info(f"翻译内容: {len(content_zh)} 字符")
             
             if overwrite:
                 # Overwrite 模式：执行 UPDATE，仅更新指定字段
                 rows.append(
                     (
-                        title,
-                        content,
+                        original_title,
+                        original_content,
                         images_json,
+                        (title_zh or '')[:255],
+                        (content_zh or '')[:65535],
                         (title_en or '')[:255],
                         (content_en or '')[:65535],
                         pid,
@@ -661,7 +674,7 @@ class BoniuCrawler(RequestsCrawler):
                 rows.append(
                     (
                         pid,
-                        title,
+                        original_title,
                         (p.get('url') or '')[:512],
                         None if p.get('user_id') in (None, '') else int(p.get('user_id')),
                         (p.get('username') or '')[:100],
@@ -676,8 +689,10 @@ class BoniuCrawler(RequestsCrawler):
                         p.get('crawl_time') or None,
                         (p.get('fid') or '')[:50],
                         1 if p.get('is_crawl', 1) else 0,
-                        content,
+                        original_content,
                         1,  # uniacid=1
+                        (title_zh or '')[:255],
+                        (content_zh or '')[:65535],
                         (title_en or '')[:255],
                         (content_en or '')[:65535],
                     )
@@ -686,7 +701,7 @@ class BoniuCrawler(RequestsCrawler):
             if self.logger:
                 self.logger.info(f"批量入库: 记录数={len(rows)} 表={self.table_name}")
             if overwrite:
-                update_sql = f"UPDATE `{self.table_name}` SET `title`=%s, `content`=%s, `images`=%s, `title_en`=%s, `content_en`=%s, `updated_at`=NOW() WHERE `forum_post_id`=%s"
+                update_sql = f"UPDATE `{self.table_name}` SET `title`=%s, `content`=%s, `images`=%s, `title_zh`=%s, `content_zh`=%s, `title_en`=%s, `content_en`=%s, `updated_at`=NOW() WHERE `forum_post_id`=%s"
                 affected = executemany(update_sql, rows)
             else:
                 affected = executemany(sql, rows)
