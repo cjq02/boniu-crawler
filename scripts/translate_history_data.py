@@ -57,7 +57,7 @@ class HistoryDataTranslator:
         FROM `{self.table_name}` 
         WHERE (title_en IS NULL OR title_en = '' OR content_en IS NULL OR content_en = '')
         AND title IS NOT NULL AND title != ''
-        ORDER BY forum_post_id DESC
+        ORDER BY created_at DESC
         """
         
         if limit:
