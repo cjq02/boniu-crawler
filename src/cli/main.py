@@ -124,6 +124,30 @@ def translate_history() -> None:
     subprocess.run([sys.executable, str(script_path)] + args)
 
 
+def translate_circle() -> None:
+    """翻译圈子数据"""
+    # 导入翻译脚本
+    script_path = Path(__file__).parent.parent.parent / "scripts" / "translate_circle_data.py"
+    if not script_path.exists():
+        print(f"错误: 找不到圈子翻译脚本 {script_path}")
+        sys.exit(1)
+    
+    # 执行翻译脚本
+    import subprocess
+    # 过滤掉 --env 参数，因为翻译脚本不需要
+    args = []
+    skip_next = False
+    for i, arg in enumerate(sys.argv[2:]):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == '--env':
+            skip_next = True
+            continue
+        args.append(arg)
+    subprocess.run([sys.executable, str(script_path)] + args)
+
+
 def main() -> None:
     """主函数"""
     parser = argparse.ArgumentParser(description="博牛社区论坛爬虫 CLI")
@@ -190,6 +214,21 @@ def main() -> None:
         help="加载环境变量文件：dev -> env.dev；prd -> env.prd（必传）",
     )
     
+    # translate-circle 子命令（翻译圈子数据）
+    translate_circle_parser = subparsers.add_parser('translate-circle', help='翻译圈子数据')
+    translate_circle_parser.add_argument('--batch-size', type=int, default=10, help='每批处理的记录数（默认10）')
+    translate_circle_parser.add_argument('--delay', type=float, default=1.0, help='批次之间的延迟时间（秒，默认1.0）')
+    translate_circle_parser.add_argument('--max-records', type=int, default=None, help='最大处理记录数（默认无限制）')
+    translate_circle_parser.add_argument('--table', type=str, default='ims_mdkeji_im_circle', help='数据表名称')
+    translate_circle_parser.add_argument('--stats', action='store_true', help='只显示统计信息')
+    translate_circle_parser.add_argument('--auto', action='store_true', help='自动模式，不需要用户确认')
+    translate_circle_parser.add_argument(
+        "--env",
+        choices=["dev", "prd"],
+        required=True,
+        help="加载环境变量文件：dev -> env.dev；prd -> env.prd（必传）",
+    )
+    
     args = parser.parse_args()
     
     # 如果没有子命令，显示帮助
@@ -206,6 +245,8 @@ def main() -> None:
         run(args.mode, args.output, args.pages, args.overwrite, args.fid, args.post_id)
     elif args.command == 'translate':
         translate_history()
+    elif args.command == 'translate-circle':
+        translate_circle()
 
 
 if __name__ == "__main__":
