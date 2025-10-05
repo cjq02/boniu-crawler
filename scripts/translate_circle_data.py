@@ -63,8 +63,9 @@ class CircleDataTranslator:
         if limit:
             sql += f" LIMIT {limit} OFFSET {offset}"
         
+        print(f"    🔍 执行查询: {sql[:100]}...")
         rows = list(fetch_all(sql))
-        print(f"查询到 {len(rows)} 条未翻译记录")
+        print(f"    📊 查询到 {len(rows)} 条未翻译记录")
         return rows
     
     def translate_text(self, text: str, from_lang: str = "zh", to_lang: str = "en") -> str:
@@ -85,10 +86,15 @@ class CircleDataTranslator:
         try:
             # 对于长文本，截取前1000字符进行翻译
             text_to_translate = text[:1000] if len(text) > 1000 else text
+            if len(text) > 1000:
+                print(f"    ⚠️  文本过长，截取前1000字符进行翻译")
+            
             result = self.translator.translate(text_to_translate, from_lang, to_lang)
+            if result:
+                print(f"    🌐 翻译API调用成功")
             return result
         except Exception as e:
-            print(f"翻译失败: {e}")
+            print(f"    ❌ 翻译失败: {e}")
             return ""
     
     def update_translated_circles(self, circles: List[Dict[str, Any]]) -> int:
@@ -102,7 +108,10 @@ class CircleDataTranslator:
             更新的记录数
         """
         if not circles:
+            print("    ⚠️  没有需要更新的记录")
             return 0
+        
+        print(f"    📝 准备更新 {len(circles)} 条记录到数据库...")
         
         sql = f"""
         UPDATE `{self.table_name}` 
@@ -119,9 +128,13 @@ class CircleDataTranslator:
             for c in circles
         ]
         
-        affected = executemany(sql, rows)
-        print(f"更新了 {affected} 条记录")
-        return affected
+        try:
+            affected = executemany(sql, rows)
+            print(f"    ✅ 数据库更新成功，影响 {affected} 条记录")
+            return affected
+        except Exception as e:
+            print(f"    ❌ 数据库更新失败: {e}")
+            return 0
     
     def translate_batch(self, batch_size: int = 10, delay: float = 1.0, max_records: int = None) -> int:
         """
@@ -137,6 +150,7 @@ class CircleDataTranslator:
         """
         total_translated = 0
         offset = 0
+        batch_count = 0
         
         print(f"开始批量翻译，批大小: {batch_size}, 延迟: {delay}秒")
         print("=" * 60)
@@ -147,13 +161,16 @@ class CircleDataTranslator:
             if max_records and (total_translated + batch_size) > max_records:
                 limit = max_records - total_translated
             
+            print(f"\n🔍 查询未翻译记录...")
             circles = self.get_untranslated_circles(limit=limit, offset=0)  # offset=0因为每次翻译后会减少未翻译记录
             
             if not circles:
-                print("没有更多未翻译的记录")
+                print("✅ 没有更多未翻译的记录")
                 break
             
-            print(f"\n批次 {offset // batch_size + 1}: 处理 {len(circles)} 条记录")
+            batch_count += 1
+            print(f"\n📦 批次 {batch_count}: 处理 {len(circles)} 条记录")
+            print("-" * 40)
             
             # 翻译每条记录
             translated_circles = []
@@ -165,16 +182,23 @@ class CircleDataTranslator:
                 msg_zh = circle.get('msg_zh') or ''
                 msg_en = circle.get('msg_en') or ''
                 
-                print(f"  [{i}/{len(circles)}] ID: {circle_id}")
+                print(f"  🔄 [{i}/{len(circles)}] 处理记录 ID: {circle_id}")
                 
                 # 如果没有中文翻译，使用原文作为中文
                 if not msg_zh and original_msg:
                     msg_zh = original_msg
+                    print(f"    📝 使用原文作为中文: {msg_zh[:50]}...")
                 
                 # 翻译为英文
                 if not msg_en and msg_zh:
+                    print(f"    🌐 正在翻译为英文...")
                     msg_en = self.translate_text(msg_zh, 'zh', 'en')
-                    print(f"    消息: {msg_zh[:50]} -> {msg_en[:50]}")
+                    if msg_en:
+                        print(f"    ✅ 翻译成功: {msg_zh[:30]}... -> {msg_en[:30]}...")
+                    else:
+                        print(f"    ❌ 翻译失败")
+                else:
+                    print(f"    ⏭️  跳过翻译（已有英文翻译）")
                 
                 translated_circles.append({
                     'id': circle_id,
@@ -187,28 +211,29 @@ class CircleDataTranslator:
                     time.sleep(0.5)
             
             # 更新到数据库
-            print(f"\n  更新数据库...")
-            self.update_translated_circles(translated_circles)
+            print(f"\n💾 正在更新数据库...")
+            affected = self.update_translated_circles(translated_circles)
+            print(f"✅ 数据库更新完成，影响 {affected} 条记录")
             
             total_translated += len(circles)
             offset += batch_size
             
-            print(f"  已完成: {total_translated} 条记录")
+            print(f"📊 批次完成: {total_translated} 条记录已处理")
             
             # 检查是否达到最大记录数
             if max_records and total_translated >= max_records:
-                print(f"\n达到最大记录数限制: {max_records}")
+                print(f"\n⏹️  达到最大记录数限制: {max_records}")
                 break
             
             # 批次之间延迟
             if circles and len(circles) == batch_size:
-                print(f"\n等待 {delay} 秒...")
+                print(f"\n⏳ 等待 {delay} 秒后继续下一批次...")
                 time.sleep(delay)
             else:
                 break
         
         print("\n" + "=" * 60)
-        print(f"翻译完成！总共翻译了 {total_translated} 条记录")
+        print(f"🎉 翻译完成！总共翻译了 {total_translated} 条记录")
         return total_translated
     
     def get_translation_statistics(self) -> Dict[str, int]:
@@ -258,35 +283,46 @@ def main():
     args = parser.parse_args()
     
     try:
+        print("🚀 启动圈子数据翻译工具")
+        print("=" * 60)
+        
         translator = CircleDataTranslator(table_name=args.table)
         
         if args.stats:
             # 只显示统计信息
-            print("\n翻译统计信息")
+            print("\n📊 翻译统计信息")
             print("=" * 60)
             stats = translator.get_translation_statistics()
-            print(f"总记录数: {stats['total']}")
-            print(f"已翻译: {stats['translated']} ({stats['percentage']}%)")
-            print(f"未翻译: {stats['untranslated']}")
+            print(f"📈 总记录数: {stats['total']}")
+            print(f"✅ 已翻译: {stats['translated']} ({stats['percentage']}%)")
+            print(f"⏳ 未翻译: {stats['untranslated']}")
         else:
             # 显示统计信息
+            print("\n📊 当前翻译状态")
+            print("-" * 40)
             stats = translator.get_translation_statistics()
-            print(f"\n当前状态: {stats['translated']}/{stats['total']} 已翻译 ({stats['percentage']}%)")
-            print(f"未翻译记录: {stats['untranslated']}")
+            print(f"📈 总记录数: {stats['total']}")
+            print(f"✅ 已翻译: {stats['translated']} ({stats['percentage']}%)")
+            print(f"⏳ 未翻译: {stats['untranslated']}")
             
             if stats['untranslated'] == 0:
-                print("\n所有记录已翻译完成！")
+                print("\n🎉 所有记录已翻译完成！")
                 return
             
             # 开始翻译
+            print(f"\n⚙️  翻译配置:")
+            print(f"   📦 批大小: {args.batch_size}")
+            print(f"   ⏱️  延迟: {args.delay}秒")
+            print(f"   📊 最大记录: {args.max_records or '无限制'}")
+            
             if not args.auto:
                 try:
-                    input(f"\n按回车键开始翻译（将处理最多 {args.max_records or '全部'} 条记录）...")
+                    input(f"\n⏳ 按回车键开始翻译（将处理最多 {args.max_records or '全部'} 条记录）...")
                 except (EOFError, KeyboardInterrupt):
-                    print("\n用户取消操作")
+                    print("\n❌ 用户取消操作")
                     return
             else:
-                print(f"\n自动模式：开始翻译（将处理最多 {args.max_records or '全部'} 条记录）...")
+                print(f"\n🤖 自动模式：开始翻译（将处理最多 {args.max_records or '全部'} 条记录）...")
             
             total = translator.translate_batch(
                 batch_size=args.batch_size,
@@ -295,12 +331,12 @@ def main():
             )
             
             # 显示最终统计
-            print("\n最终统计信息")
+            print("\n📊 最终统计信息")
             print("=" * 60)
             final_stats = translator.get_translation_statistics()
-            print(f"总记录数: {final_stats['total']}")
-            print(f"已翻译: {final_stats['translated']} ({final_stats['percentage']}%)")
-            print(f"未翻译: {final_stats['untranslated']}")
+            print(f"📈 总记录数: {final_stats['total']}")
+            print(f"✅ 已翻译: {final_stats['translated']} ({final_stats['percentage']}%)")
+            print(f"⏳ 未翻译: {final_stats['untranslated']}")
             
     except KeyboardInterrupt:
         print("\n\n用户中断，正在退出...")
