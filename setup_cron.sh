@@ -8,8 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "设置博牛社区爬虫定时任务..."
 echo "项目目录: $SCRIPT_DIR"
 
-# 创建cron任务条目
-CRON_JOB="0 23 */2 * * cd $SCRIPT_DIR && python3 src/scheduler/scheduled_crawler.py >> logs/scheduled/cron.log 2>&1"
+# 创建cron任务条目（使用虚拟环境）
+CRON_JOB="0 23 */2 * * cd $SCRIPT_DIR && source venv/bin/activate && python src/scheduler/scheduled_crawler.py >> logs/scheduled/cron.log 2>&1"
 
 # 检查是否已存在相同的cron任务
 if crontab -l 2>/dev/null | grep -q "scheduled_crawler.py"; then
@@ -44,4 +44,4 @@ echo "查看当前cron任务: crontab -l"
 echo "编辑cron任务: crontab -e"
 echo "删除所有cron任务: crontab -r"
 echo ""
-echo "测试执行: cd $SCRIPT_DIR && python3 src/scheduler/scheduled_crawler.py"
+echo "测试执行: cd $SCRIPT_DIR && source venv/bin/activate && python src/scheduler/scheduled_crawler.py"
