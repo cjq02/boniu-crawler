@@ -8,6 +8,7 @@ from typing import Optional
 
 from ..crawler.sites.boniu.crawler import BoniuCrawler
 from ..crawler.utils.storage import save_data
+from ..scheduler.execution_logger import get_execution_logger
 
 
 def ensure_dir(path: str) -> None:
@@ -33,46 +34,64 @@ def run(
         fid: 仅抓取指定的版块ID（fid）
         post_id: 仅抓取指定的帖子ID（thread id），用于快速调试
     """
-    crawler = BoniuCrawler()
-    # 覆盖 fid 列表（若提供）
-    if fid is not None:
-        crawler.fids = [fid]
+    # 获取执行日志记录器
+    execution_logger = get_execution_logger(execution_type="manual")
+    
+    # 构建执行命令和参数
+    import sys
+    command = " ".join(sys.argv)
+    parameters = {
+        "mode": mode,
+        "pages": pages,
+        "overwrite": overwrite,
+        "fid": fid,
+        "post_id": post_id,
+        "output": output
+    }
+    
+    # 使用执行上下文管理器记录日志
+    with execution_logger.execution_context(pages=pages, command=command, parameters=parameters):
+        crawler = BoniuCrawler()
+        # 覆盖 fid 列表（若提供）
+        if fid is not None:
+            crawler.fids = [fid]
 
-    # 若提供 post_id，则直接抓取该帖子详情，保存到 data/debug 后返回
-    if post_id is not None:
-        from pathlib import Path
-        thread_url = f"https://bbs.boniu123.cc/thread-{post_id}-1-1.html"
-        content, images = crawler._fetch_post_content(thread_url)
-        debug_dir = Path("data/debug")
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        (debug_dir / f"thread_{post_id}_clean.txt").write_text(content or "", encoding="utf-8")
-        import json as _json
-        (debug_dir / f"thread_{post_id}_images.json").write_text(
-            _json.dumps(images or [], ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        print(f"已保存: {debug_dir}/thread_{post_id}_clean.txt")
-        print(f"已保存: {debug_dir}/thread_{post_id}_images.json")
-        return
-    if mode == "db":
-        print(f"开始分页抓取并保存到数据库... (最大页数: {pages}, 覆盖模式: {overwrite})")
-        crawler.crawl_paginated_and_store(max_pages=pages, overwrite=overwrite)
-        print("分页抓取入库完成")
-        return
+        # 若提供 post_id，则直接抓取该帖子详情，保存到 data/debug 后返回
+        if post_id is not None:
+            from pathlib import Path
+            thread_url = f"https://bbs.boniu123.cc/thread-{post_id}-1-1.html"
+            content, images = crawler._fetch_post_content(thread_url)
+            debug_dir = Path("data/debug")
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            (debug_dir / f"thread_{post_id}_clean.txt").write_text(content or "", encoding="utf-8")
+            import json as _json
+            (debug_dir / f"thread_{post_id}_images.json").write_text(
+                _json.dumps(images or [], ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            print(f"已保存: {debug_dir}/thread_{post_id}_clean.txt")
+            print(f"已保存: {debug_dir}/thread_{post_id}_images.json")
+            return
+            
+        if mode == "db":
+            print(f"开始分页抓取并保存到数据库... (最大页数: {pages}, 覆盖模式: {overwrite})")
+            crawler.crawl_paginated_and_store(max_pages=pages, overwrite=overwrite)
+            print("分页抓取入库完成")
+            return
 
-    # JSON 模式（与之前行为一致）
-    print("开始抓取论坛帖子...")
-    posts = crawler.crawl_forum_posts()
-    if not posts:
-        print("未抓取到任何帖子数据")
-        return
+        # JSON 模式（与之前行为一致）
+        print("开始抓取论坛帖子...")
+        posts = crawler.crawl_forum_posts()
+        if not posts:
+            print("未抓取到任何帖子数据")
+            return
 
-    if not output:
-        output = "data/boniu_forum_posts.json"
-    dirname = os.path.dirname(output) or "."
-    ensure_dir(dirname)
+        if not output:
+            output = "data/boniu_forum_posts.json"
+        dirname = os.path.dirname(output) or "."
+        ensure_dir(dirname)
 
-    file_path = save_data(posts, os.path.basename(output), output_dir=dirname)
-    print(f"抓取完成，共 {len(posts)} 条；已保存到: {file_path}")
+        file_path = save_data(posts, os.path.basename(output), output_dir=dirname)
+        print(f"抓取完成，共 {len(posts)} 条；已保存到: {file_path}")
 
 
 def _load_env(env_name: str) -> None:

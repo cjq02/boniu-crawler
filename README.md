@@ -252,12 +252,15 @@ FROM ims_mdkeji_im_boniu_forum_post
 WHERE title_zh IS NOT NULL AND title_zh != '' AND title_en IS NOT NULL AND title_en != ''
 LIMIT 10;
 
--- 查看定时任务执行记录
+-- 查看执行记录
 SELECT 
   id,
   start_time,
   end_time,
   status,
+  execution_type,
+  command,
+  parameters,
   posts_count,
   message,
   TIMESTAMPDIFF(SECOND, start_time, end_time) as duration_seconds
@@ -265,16 +268,28 @@ FROM ims_mdkeji_im_boniu_crawler_log
 ORDER BY start_time DESC 
 LIMIT 10;
 
--- 查看定时任务执行统计
+-- 查看执行统计（按日期和执行类型）
 SELECT 
   DATE(start_time) as execution_date,
+  execution_type,
   COUNT(*) as total_executions,
   SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
   SUM(posts_count) as total_posts_crawled
 FROM ims_mdkeji_im_boniu_crawler_log 
 WHERE start_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-GROUP BY DATE(start_time)
-ORDER BY execution_date DESC;
+GROUP BY DATE(start_time), execution_type
+ORDER BY execution_date DESC, execution_type;
+
+-- 按执行类型统计
+SELECT 
+  execution_type,
+  COUNT(*) as total_executions,
+  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+  SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count,
+  SUM(posts_count) as total_posts_crawled
+FROM ims_mdkeji_im_boniu_crawler_log 
+WHERE start_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+GROUP BY execution_type;
 ```
 
 ## ⚙️ 配置说明
@@ -394,7 +409,10 @@ CREATE TABLE `ims_mdkeji_im_boniu_crawler_log` (
   `start_time` datetime NOT NULL COMMENT '任务开始时间',
   `end_time` datetime DEFAULT NULL COMMENT '任务结束时间',
   `status` enum('running','success','failed','timeout','error') NOT NULL DEFAULT 'running' COMMENT '执行状态',
+  `execution_type` enum('scheduled','manual') NOT NULL DEFAULT 'manual' COMMENT '执行类型：scheduled=定时任务，manual=手动执行',
   `environment` varchar(50) NOT NULL DEFAULT 'production' COMMENT '执行环境',
+  `command` varchar(500) DEFAULT NULL COMMENT '执行命令',
+  `parameters` text COMMENT '执行参数JSON',
   `pages` int(11) NOT NULL DEFAULT 2 COMMENT '爬取页数',
   `posts_count` int(11) NOT NULL DEFAULT 0 COMMENT '本次爬取的帖子数量',
   `message` text COMMENT '执行消息或错误信息',
@@ -403,6 +421,7 @@ CREATE TABLE `ims_mdkeji_im_boniu_crawler_log` (
   PRIMARY KEY (`id`),
   KEY `idx_start_time` (`start_time`),
   KEY `idx_status` (`status`),
+  KEY `idx_execution_type` (`execution_type`),
   KEY `idx_environment` (`environment`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='爬虫执行日志表';
@@ -414,7 +433,10 @@ CREATE TABLE `ims_mdkeji_im_boniu_crawler_log` (
 - `start_time`: 任务开始时间
 - `end_time`: 任务结束时间
 - `status`: 执行状态（running/success/failed/timeout/error）
+- `execution_type`: 执行类型（scheduled=定时任务，manual=手动执行）
 - `environment`: 执行环境（production/development）
+- `command`: 执行命令
+- `parameters`: 执行参数JSON
 - `pages`: 爬取页数
 - `posts_count`: 本次爬取的帖子数量
 - `message`: 执行消息或错误信息
@@ -655,4 +677,5 @@ run_scheduled_crawler.bat
 2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
 3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 打开 Pull Request
 5. 打开 Pull Request
