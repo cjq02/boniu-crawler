@@ -21,6 +21,14 @@
 - **灵活配置**: 可调整翻译参数和批次大小
 - **统计功能**: 实时查看翻译进度和统计信息
 
+### ⏰ 定时任务功能
+- **自动调度**: 支持每两天晚上11点自动执行爬虫任务
+- **执行记录**: 完整的任务执行日志记录到数据库
+- **状态监控**: 实时监控任务执行状态和结果
+- **跨平台支持**: 支持Windows任务计划程序和Linux cron
+- **错误处理**: 完善的异常处理和超时机制
+- **日志管理**: 详细的执行日志和错误信息记录
+
 ### 🛠️ 技术特性
 - **模块化设计**: 基于包结构的可扩展架构
 - **数据库集成**: 使用PyMySQL连接MySQL数据库
@@ -50,13 +58,23 @@ boniu-crawler/
 │   │   ├── sites/boniu/          # 博牛站点爬虫
 │   │   │   └── crawler.py        # 博牛爬虫实现
 │   │   └── utils/                # 工具模块
-│   │       ├── db_utils.py       # 数据库工具
+│   │       ├── db.py             # 数据库工具
 │   │       └── image_downloader.py # 图片下载工具
+│   └── scheduler/                 # 定时任务模块
+│       └── scheduled_crawler.py  # 定时任务执行脚本
 ├── data/                          # 数据存储目录
 ├── logs/                          # 日志文件目录
+│   └── scheduled/                 # 定时任务日志
+├── docs/                          # 项目文档
+│   └── scheduled_task_guide.md   # 定时任务设置指南
+├── scripts/                       # 脚本工具
 ├── env.dev                        # 开发环境配置
 ├── env.prd                        # 生产环境配置
 ├── create_table_new.sql           # 数据库表结构
+├── create_crawler_log_table.sql   # 定时任务日志表结构
+├── run_scheduled_crawler.bat      # Windows定时任务执行脚本
+├── setup_cron.sh                  # Linux cron设置脚本
+├── setup_windows_task.ps1         # Windows任务计划程序设置脚本
 ├── requirements.txt               # 依赖文件
 └── README.md                      # 项目说明
 ```
@@ -233,6 +251,30 @@ SELECT forum_post_id, title, title_zh, title_en, LEFT(content, 50) as content, L
 FROM ims_mdkeji_im_boniu_forum_post 
 WHERE title_zh IS NOT NULL AND title_zh != '' AND title_en IS NOT NULL AND title_en != ''
 LIMIT 10;
+
+-- 查看定时任务执行记录
+SELECT 
+  id,
+  start_time,
+  end_time,
+  status,
+  posts_count,
+  message,
+  TIMESTAMPDIFF(SECOND, start_time, end_time) as duration_seconds
+FROM ims_mdkeji_im_boniu_crawler_log 
+ORDER BY start_time DESC 
+LIMIT 10;
+
+-- 查看定时任务执行统计
+SELECT 
+  DATE(start_time) as execution_date,
+  COUNT(*) as total_executions,
+  SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+  SUM(posts_count) as total_posts_crawled
+FROM ims_mdkeji_im_boniu_crawler_log 
+WHERE start_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+GROUP BY DATE(start_time)
+ORDER BY execution_date DESC;
 ```
 
 ## ⚙️ 配置说明
@@ -344,6 +386,41 @@ CREATE TABLE `ims_mdkeji_im_boniu_forum_post` (
 - `title_en`: 英文标题（翻译功能）
 - `content_en`: 英文内容（翻译功能）
 
+### 定时任务日志表结构
+
+```sql
+CREATE TABLE `ims_mdkeji_im_boniu_crawler_log` (
+  `id` int(11) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `start_time` datetime NOT NULL COMMENT '任务开始时间',
+  `end_time` datetime DEFAULT NULL COMMENT '任务结束时间',
+  `status` enum('running','success','failed','timeout','error') NOT NULL DEFAULT 'running' COMMENT '执行状态',
+  `environment` varchar(50) NOT NULL DEFAULT 'production' COMMENT '执行环境',
+  `pages` int(11) NOT NULL DEFAULT 2 COMMENT '爬取页数',
+  `posts_count` int(11) NOT NULL DEFAULT 0 COMMENT '本次爬取的帖子数量',
+  `message` text COMMENT '执行消息或错误信息',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_start_time` (`start_time`),
+  KEY `idx_status` (`status`),
+  KEY `idx_environment` (`environment`),
+  KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='爬虫执行日志表';
+```
+
+### 定时任务日志字段说明
+
+- `id`: 自增主键
+- `start_time`: 任务开始时间
+- `end_time`: 任务结束时间
+- `status`: 执行状态（running/success/failed/timeout/error）
+- `environment`: 执行环境（production/development）
+- `pages`: 爬取页数
+- `posts_count`: 本次爬取的帖子数量
+- `message`: 执行消息或错误信息
+- `created_at`: 记录创建时间
+- `updated_at`: 记录更新时间
+
 ## 🖼️ 图片管理
 
 ### 图片存储结构
@@ -366,6 +443,7 @@ BONIU_IMG_BASE_PATH/
 
 ## 📝 日志管理
 
+### 爬虫运行日志
 爬虫运行时会生成详细日志，包括：
 
 - 爬取进度信息
@@ -375,6 +453,20 @@ BONIU_IMG_BASE_PATH/
 - 性能统计信息
 
 日志文件位置: `logs/crawler.log`
+
+### 定时任务日志
+定时任务执行时会生成专门的日志：
+
+- 任务执行状态
+- 执行时间和持续时间
+- 爬取结果统计
+- 错误和异常信息
+- 数据库执行记录
+
+日志文件位置: 
+- 主日志: `logs/scheduled/scheduled_crawler_YYYYMMDD.log`
+- Cron日志: `logs/scheduled/cron.log` (Linux)
+- 任务日志: 通过Windows事件查看器查看
 
 ## 🧪 测试
 
@@ -442,14 +534,40 @@ ps aux | grep python
 tail -f crawler.log
 ```
 
-### 5. 定时任务
+### 5. 定时任务设置
 
+#### 创建执行日志表
 ```bash
-# 编辑crontab
-crontab -e
+# 连接到MySQL数据库
+mysql -u your_username -p your_database
 
-# 添加定时任务（每天凌晨2点运行）
-0 2 * * * cd /path/to/project/boniu-crawler && source venv/bin/activate && python main.py --env prd
+# 执行SQL脚本创建日志表
+source create_crawler_log_table.sql
+```
+
+#### Windows系统设置
+```powershell
+# 以管理员身份运行PowerShell
+cd D:\me\epiboly\fuye\projects\boniu-crawler
+.\setup_windows_task.ps1
+```
+
+#### Linux/Unix系统设置
+```bash
+# 给脚本执行权限
+chmod +x setup_cron.sh
+
+# 运行设置脚本
+./setup_cron.sh
+```
+
+#### 测试定时任务
+```bash
+# 手动测试执行
+python src/scheduler/scheduled_crawler.py
+
+# 或使用批处理文件（Windows）
+run_scheduled_crawler.bat
 ```
 
 ## ⚠️ 注意事项
@@ -497,6 +615,18 @@ crontab -e
    - 验证依赖包安装
    - 确认项目路径正确
 
+5. **定时任务不执行**
+   - 检查任务计划程序中的任务状态
+   - 查看Windows事件日志或cron日志
+   - 确认Python环境和依赖包正确安装
+   - 验证数据库连接和日志表是否存在
+
+6. **定时任务执行失败**
+   - 查看详细日志文件
+   - 检查网络连接
+   - 确认目标网站可访问
+   - 验证环境变量配置
+
 ## 📚 相关文档
 
 ### 项目文档
@@ -504,6 +634,7 @@ crontab -e
 - [翻译功能快速开始](TRANSLATION_QUICKSTART.md)
 - [翻译工具文档](docs/translator.md)
 - [翻译功能实现文档](docs/translation_implementation.md)
+- [定时任务设置指南](docs/scheduled_task_guide.md)
 
 ### 技术文档
 - [Python 官方文档](https://docs.python.org/)
