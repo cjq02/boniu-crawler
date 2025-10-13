@@ -592,6 +592,75 @@ python src/scheduler/scheduled_crawler.py
 run_scheduled_crawler.bat
 ```
 
+### 6. 定时任务状态检查
+
+在 CentOS 服务器上检查定时任务状态的常用命令：
+
+1. 查看 crond 服务状态
+```bash
+systemctl status crond
+```
+
+2. 查看当前用户的定时任务
+```bash
+crontab -l
+```
+
+3. 查看系统级定时任务
+```bash
+cat /etc/crontab
+ls -la /etc/cron.d/
+ls -la /etc/cron.daily/
+ls -la /etc/cron.hourly/
+ls -la /etc/cron.monthly/
+ls -la /etc/cron.weekly/
+```
+
+4. 查看定时任务执行日志
+```bash
+# 查看最近的 cron 日志
+tail -20 /var/log/cron
+
+# 实时监控 cron 日志
+tail -f /var/log/cron
+
+# 查看今天的 cron 日志
+grep "$(date +%b\ %d)" /var/log/cron
+```
+
+5. 检查 crond 服务是否运行
+```bash
+# 检查服务状态
+systemctl is-active crond
+
+# 检查服务是否启用
+systemctl is-enabled crond
+
+# 查看服务详细信息
+systemctl show crond
+```
+
+6. 查看定时任务进程
+```bash
+# 查看 crond 进程
+ps aux | grep crond
+
+# 查看定时任务相关进程
+ps aux | grep cron
+```
+
+7. 测试定时任务语法
+```bash
+# 如果有具体的定时任务文件，可以测试语法
+crontab -T
+```
+
+8. 查看系统时间（定时任务依赖系统时间）
+```bash
+date
+timedatectl status
+```
+
 ## ⚠️ 注意事项
 
 ### 法律合规性
