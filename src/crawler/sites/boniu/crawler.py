@@ -587,12 +587,14 @@ class BoniuCrawler(RequestsCrawler):
           `forum_post_id`,`title`,`url`,`user_id`,`username`,`avatar_url`,
           `publish_time`,`reply_count`,`view_count`,`images`,`category`,
           `is_sticky`,`is_essence`,`crawl_time`,`fid`,`is_crawl`,`content`,`uniacid`,
-          `title_zh`,`content_zh`,`title_en`,`content_en`
+          `title_zh`,`content_zh`,`title_en`,`content_en`,
+          `content_summary`,`content_summary_en`,`content_summary_zh`
         ) VALUES (
           %s,%s,%s,%s,%s,%s,
           %s,%s,%s,%s,%s,
           %s,%s,%s,%s,%s,%s,%s,
-          %s,%s,%s,%s
+          %s,%s,%s,%s,
+          %s,%s,%s
         )
         ON DUPLICATE KEY UPDATE
           `title`=VALUES(`title`),
@@ -615,7 +617,10 @@ class BoniuCrawler(RequestsCrawler):
           `title_zh`=VALUES(`title_zh`),
           `content_zh`=VALUES(`content_zh`),
           `title_en`=VALUES(`title_en`),
-          `content_en`=VALUES(`content_en`);
+          `content_en`=VALUES(`content_en`),
+          `content_summary`=VALUES(`content_summary`),
+          `content_summary_en`=VALUES(`content_summary_en`),
+          `content_summary_zh`=VALUES(`content_summary_zh`);
         """
         rows = []
         skipped_count = 0
@@ -666,6 +671,11 @@ class BoniuCrawler(RequestsCrawler):
                 if self.logger:
                     self.logger.info(f"翻译内容: {len(content_zh)} 字符")
             
+            # 生成内容摘要（截取前200个字符）
+            content_summary = original_content[:200] if original_content else ''
+            content_summary_zh = content_zh[:200] if content_zh else ''
+            content_summary_en = content_en[:200] if content_en else ''
+            
             # 检查翻译后的内容长度，确保不超过TEXT限制
             if content_zh and len(content_zh.encode('utf-8')) > 65535:
                 if self.logger:
@@ -690,6 +700,9 @@ class BoniuCrawler(RequestsCrawler):
                         (content_zh or '')[:65535],
                         (title_en or '')[:255],
                         (content_en or '')[:65535],
+                        content_summary,
+                        content_summary_en,
+                        content_summary_zh,
                         pid,
                     )
                 )
@@ -718,13 +731,16 @@ class BoniuCrawler(RequestsCrawler):
                         (content_zh or '')[:65535],
                         (title_en or '')[:255],
                         (content_en or '')[:65535],
+                        content_summary,
+                        content_summary_en,
+                        content_summary_zh,
                     )
                 )
         if rows:
             if self.logger:
                 self.logger.info(f"批量入库: 记录数={len(rows)} 表={self.table_name}")
             if overwrite:
-                update_sql = f"UPDATE `{self.table_name}` SET `title`=%s, `content`=%s, `images`=%s, `title_zh`=%s, `content_zh`=%s, `title_en`=%s, `content_en`=%s, `updated_at`=NOW() WHERE `forum_post_id`=%s"
+                update_sql = f"UPDATE `{self.table_name}` SET `title`=%s, `content`=%s, `images`=%s, `title_zh`=%s, `content_zh`=%s, `title_en`=%s, `content_en`=%s, `content_summary`=%s, `content_summary_en`=%s, `content_summary_zh`=%s, `updated_at`=NOW() WHERE `forum_post_id`=%s"
                 affected = executemany(update_sql, rows)
             else:
                 affected = executemany(sql, rows)
