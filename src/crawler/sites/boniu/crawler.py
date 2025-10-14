@@ -618,6 +618,7 @@ class BoniuCrawler(RequestsCrawler):
           `content_en`=VALUES(`content_en`);
         """
         rows = []
+        skipped_count = 0
         for p in posts:
             # 过滤掉无效或缺失的帖子ID，避免产生重复/脏数据
             try:
@@ -626,10 +627,19 @@ class BoniuCrawler(RequestsCrawler):
                 pid = 0
             if pid <= 0:
                 continue
+            
+            # 检查内容长度，如果超过TEXT限制则跳过
+            original_content = p.get('content') or ''
+            if len(original_content.encode('utf-8')) > 65535:
+                if self.logger:
+                    self.logger.warning(f"跳过帖子 ID={pid}，内容长度 {len(original_content.encode('utf-8'))} 字节超过TEXT限制(65535字节)")
+                skipped_count += 1
+                continue
+            
             images_json = json.dumps(p.get('images') or [], ensure_ascii=False)
             # 获取原始数据
             original_title = (p.get('title') or '')[:255]
-            original_content = (p.get('content') or '')[:65535]
+            original_content = original_content[:65535]  # 确保不超过限制
             
             # 初始化翻译字段
             title_zh = p.get('title_zh') or ''
@@ -655,6 +665,19 @@ class BoniuCrawler(RequestsCrawler):
                 content_en = self._translate_text(content_to_translate, 'zh', 'en')
                 if self.logger:
                     self.logger.info(f"翻译内容: {len(content_zh)} 字符")
+            
+            # 检查翻译后的内容长度，确保不超过TEXT限制
+            if content_zh and len(content_zh.encode('utf-8')) > 65535:
+                if self.logger:
+                    self.logger.warning(f"跳过帖子 ID={pid}，中文内容长度 {len(content_zh.encode('utf-8'))} 字节超过TEXT限制")
+                skipped_count += 1
+                continue
+            
+            if content_en and len(content_en.encode('utf-8')) > 65535:
+                if self.logger:
+                    self.logger.warning(f"跳过帖子 ID={pid}，英文内容长度 {len(content_en.encode('utf-8'))} 字节超过TEXT限制")
+                skipped_count += 1
+                continue
             
             if overwrite:
                 # Overwrite 模式：执行 UPDATE，仅更新指定字段
@@ -707,7 +730,12 @@ class BoniuCrawler(RequestsCrawler):
                 affected = executemany(sql, rows)
             if self.logger:
                 self.logger.info(f"入库完成: 受影响行数≈{affected}")
+                if skipped_count > 0:
+                    self.logger.info(f"跳过 {skipped_count} 个帖子（内容长度超过TEXT限制）")
             return len(rows)
+        else:
+            if self.logger and skipped_count > 0:
+                self.logger.info(f"所有帖子都被跳过（内容长度超过TEXT限制），跳过数量: {skipped_count}")
         return 0
 
 
