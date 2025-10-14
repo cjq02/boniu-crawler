@@ -94,7 +94,7 @@ ENVIRONMENT=production
 ## 日志和监控
 
 ### 日志文件位置
-- 主日志：`logs/scheduled/scheduled_crawler_YYYYMMDD.log`
+- 主日志：`logs/scheduled/YYYY/MM/DD.log` (按年/月/日组织)
 - Cron日志：`logs/scheduled/cron.log` (Linux)
 - 任务日志：通过Windows事件查看器查看
 

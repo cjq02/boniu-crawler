@@ -21,10 +21,16 @@ from src.scheduler.execution_logger import get_execution_logger
 
 def setup_logging():
     """设置日志"""
-    log_dir = project_root / "logs" / "scheduled"
+    # 创建年/月/日目录结构
+    now = datetime.now()
+    year_str = now.strftime('%Y')
+    month_str = now.strftime('%m')
+    day_str = now.strftime('%d')
+    
+    log_dir = project_root / "logs" / "scheduled" / year_str / month_str
     log_dir.mkdir(parents=True, exist_ok=True)
     
-    log_file = log_dir / f"scheduled_crawler_{datetime.now().strftime('%Y%m%d')}.log"
+    log_file = log_dir / f"{day_str}.log"
     
     logging.basicConfig(
         level=logging.INFO,
