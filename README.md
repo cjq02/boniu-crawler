@@ -123,6 +123,8 @@ cat env.prd
 
 ### 4. 运行爬虫
 
+#### 手动运行爬虫命令
+
 ```bash
 # 生产环境运行（默认--mode db）
 python main.py crawl --env prd
@@ -130,8 +132,35 @@ python main.py crawl --env prd
 # 开发环境运行
 python main.py crawl --env dev
 
+# 指定爬取页数
+python main.py crawl --env prd --pages 3
+
+# 开发环境指定页数
+python main.py crawl --env dev --pages 2
+
 # 查看帮助
 python main.py --help
+```
+
+#### 直接运行爬虫模块
+
+```bash
+# 直接运行博牛爬虫（使用默认配置）
+python -c "from src.crawler.sites.boniu.crawler import BoniuCrawler; crawler = BoniuCrawler(); crawler.run()"
+
+# 运行爬虫并指定参数
+python -c "
+from src.crawler.sites.boniu.crawler import BoniuCrawler
+crawler = BoniuCrawler()
+crawler.crawl_paginated_and_store(max_pages=2, delay_seconds=3.0, overwrite=False)
+"
+
+# 运行爬虫并覆盖已存在数据
+python -c "
+from src.crawler.sites.boniu.crawler import BoniuCrawler
+crawler = BoniuCrawler()
+crawler.crawl_paginated_and_store(max_pages=1, delay_seconds=2.0, overwrite=True)
+"
 ```
 
 ### 5. 翻译功能使用
@@ -157,6 +186,21 @@ AFTER `title_zh`;
 ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
 ADD COLUMN `content_en` TEXT DEFAULT NULL COMMENT '英文内容' 
 AFTER `content_zh`;
+
+-- 添加内容摘要字段
+ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
+ADD COLUMN `content_summary` VARCHAR(200) DEFAULT NULL COMMENT '内容摘要' 
+AFTER `content`;
+
+-- 添加英文内容摘要字段
+ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
+ADD COLUMN `content_summary_en` VARCHAR(200) DEFAULT NULL COMMENT '英文内容摘要' 
+AFTER `content_en`;
+
+-- 添加中文内容摘要字段
+ALTER TABLE `ims_mdkeji_im_boniu_forum_post` 
+ADD COLUMN `content_summary_zh` VARCHAR(200) DEFAULT NULL COMMENT '中文内容摘要' 
+AFTER `content_summary_en`;
 ```
 
 #### 爬取时自动翻译
@@ -184,13 +228,16 @@ python main.py translate --env dev --batch-size 20 --delay 1.5 --auto
 # 1. 添加数据库字段（首次使用）
 mysql -h YOUR_HOST -u YOUR_USER -p YOUR_DATABASE < scripts/add_translation_fields.sql
 
-# 2. 查看翻译统计
+# 2. 添加摘要字段（首次使用）
+mysql -h YOUR_HOST -u YOUR_USER -p YOUR_DATABASE < scripts/add_content_summary_fields.sql
+
+# 3. 查看翻译统计
 python main.py translate --env dev --stats
 
-# 3. 测试翻译（翻译5条记录）
+# 4. 测试翻译（翻译5条记录）
 python main.py translate --env dev --max-records 5 --batch-size 2 --auto
 
-# 4. 批量翻译所有数据
+# 5. 批量翻译所有数据
 python main.py translate --env dev --batch-size 20 --delay 1.5 --auto
 ```
 
@@ -214,6 +261,20 @@ python main.py translate --env dev --auto
 # 爬取数据
 python main.py crawl --env prd
 python main.py crawl --env dev
+
+# 指定爬取页数
+python main.py crawl --env prd --pages 3
+python main.py crawl --env dev --pages 2
+
+# 直接运行爬虫模块（绕过CLI）
+python -c "from src.crawler.sites.boniu.crawler import BoniuCrawler; crawler = BoniuCrawler(); crawler.run()"
+
+# 运行爬虫并自定义参数
+python -c "
+from src.crawler.sites.boniu.crawler import BoniuCrawler
+crawler = BoniuCrawler()
+crawler.crawl_paginated_and_store(max_pages=2, delay_seconds=3.0, overwrite=False)
+"
 
 # 翻译功能
 python main.py translate --env dev --stats
@@ -250,6 +311,12 @@ FROM ims_mdkeji_im_boniu_forum_post;
 SELECT forum_post_id, title, title_zh, title_en, LEFT(content, 50) as content, LEFT(content_zh, 50) as content_zh, LEFT(content_en, 50) as content_en
 FROM ims_mdkeji_im_boniu_forum_post 
 WHERE title_zh IS NOT NULL AND title_zh != '' AND title_en IS NOT NULL AND title_en != ''
+LIMIT 10;
+
+-- 查看摘要字段
+SELECT forum_post_id, title, content_summary, content_summary_zh, content_summary_en
+FROM ims_mdkeji_im_boniu_forum_post 
+WHERE content_summary IS NOT NULL AND content_summary != ''
 LIMIT 10;
 
 -- 查看执行记录
@@ -368,6 +435,9 @@ CREATE TABLE `ims_mdkeji_im_boniu_forum_post` (
   `content_zh` text DEFAULT NULL COMMENT '中文内容',
   `title_en` varchar(255) DEFAULT NULL COMMENT '英文标题',
   `content_en` text DEFAULT NULL COMMENT '英文内容',
+  `content_summary` varchar(200) DEFAULT NULL COMMENT '内容摘要',
+  `content_summary_en` varchar(200) DEFAULT NULL COMMENT '英文内容摘要',
+  `content_summary_zh` varchar(200) DEFAULT NULL COMMENT '中文内容摘要',
   PRIMARY KEY (`id`),
   UNIQUE KEY `forum_post_id` (`forum_post_id`),
   KEY `idx_title_zh` (`title_zh`),
@@ -400,6 +470,9 @@ CREATE TABLE `ims_mdkeji_im_boniu_forum_post` (
 - `content_zh`: 中文内容（翻译功能）
 - `title_en`: 英文标题（翻译功能）
 - `content_en`: 英文内容（翻译功能）
+- `content_summary`: 内容摘要（前200字符）
+- `content_summary_en`: 英文内容摘要（前200字符）
+- `content_summary_zh`: 中文内容摘要（前200字符）
 
 ### 定时任务日志表结构
 
