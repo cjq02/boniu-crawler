@@ -100,11 +100,32 @@ def run_crawler():
                 
                 # 尝试从输出中提取帖子数量
                 posts_count = 0
-                if "已插入/更新" in result.stdout:
-                    import re
-                    match = re.search(r'已插入/更新 (\d+) 条', result.stdout)
+                import re
+                
+                # 尝试多种可能的输出格式
+                patterns = [
+                    r'已插入/更新 (\d+) 条',
+                    r'插入/更新 (\d+) 条',
+                    r'已插入 (\d+) 条',
+                    r'插入 (\d+) 条',
+                    r'更新 (\d+) 条',
+                    r'入库完成: 受影响行数≈(\d+)',
+                    r'受影响行数≈(\d+)',
+                    r'(\d+) 条记录',
+                    r'共 (\d+) 条',
+                    r'爬取了 (\d+) 个',
+                    r'(\d+) 个帖子'
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, result.stdout)
                     if match:
                         posts_count = int(match.group(1))
+                        logger.info(f"从输出中提取到帖子数量: {posts_count} (匹配模式: {pattern})")
+                        break
+                
+                if posts_count == 0:
+                    logger.warning("未能从输出中提取到帖子数量")
                 
                 # 更新执行记录中的帖子数量
                 execution_logger.end_execution('success', '任务执行成功', posts_count)
