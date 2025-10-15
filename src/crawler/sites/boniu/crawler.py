@@ -784,9 +784,13 @@ class BoniuCrawler(RequestsCrawler):
         
         # 统计本次实际处理的新帖子总数
         total_new_posts = 0
+        # 统计每个版块的帖子数量
+        fid_stats = {}
 
         # 遍历多个 fid 抓取
         for fid in self.fids:
+            # 初始化该版块的统计
+            fid_stats[fid] = 0
             page = 1
             while page <= max_pages:
                 # 构造分页 URL（根据 fid 与页码）
@@ -812,6 +816,7 @@ class BoniuCrawler(RequestsCrawler):
                         self.logger.info(f"(fid={fid}) 第 {page} 页覆盖模式：处理所有 {len(posts_to_process)} 条")
                     # 覆盖模式下，统计所有处理的帖子
                     total_new_posts += len(posts_to_process)
+                    fid_stats[fid] += len(posts_to_process)
                 else:
                     # 非覆盖模式：只处理新帖子
                     new_ids = ids_on_page - existing_ids
@@ -824,6 +829,7 @@ class BoniuCrawler(RequestsCrawler):
                         self.logger.info(f"(fid={fid}) 第 {page} 页新增 {len(posts_to_process)} 条")
                     # 非覆盖模式下，只统计新帖子
                     total_new_posts += len(posts_to_process)
+                    fid_stats[fid] += len(posts_to_process)
 
                 # 为帖子获取内容
                 if self.logger:
@@ -871,8 +877,14 @@ class BoniuCrawler(RequestsCrawler):
         if self.logger:
             self.logger.info(f"分页抓取入库完成，本次共处理 {total_new_posts} 个新帖子")
         
-        return total_new_posts
+        # 构建统计信息
+        stats_info = {
+            'total_posts': total_new_posts,
+            'fid_stats': fid_stats
+        }
+        
+        return stats_info
 
-    def run(self) -> int:
+    def run(self) -> dict:
         """运行博牛爬虫的主要逻辑（分页入库）"""
         return self.crawl_paginated_and_store()
