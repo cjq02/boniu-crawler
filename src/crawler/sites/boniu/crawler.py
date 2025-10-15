@@ -755,13 +755,16 @@ class BoniuCrawler(RequestsCrawler):
         return 0
 
 
-    def crawl_paginated_and_store(self, max_pages: int = None, delay_seconds: float = None, overwrite: bool = False) -> None:
+    def crawl_paginated_and_store(self, max_pages: int = None, delay_seconds: float = None, overwrite: bool = False) -> int:
         """分页爬取；若当前页所有帖子已存在则停止；最后插入新数据
         
         Args:
             max_pages: 最大爬取页数
             delay_seconds: 延迟秒数
             overwrite: 是否覆盖已存在的记录
+            
+        Returns:
+            int: 本次实际处理的新帖子数量（不包括已存在的）
         """
         # 使用默认值
         max_pages = max_pages or self.DEFAULT_MAX_PAGES
@@ -778,6 +781,9 @@ class BoniuCrawler(RequestsCrawler):
         else:
             if self.logger:
                 self.logger.info("覆盖模式：将处理所有帖子，包括已存在的记录")
+        
+        # 统计本次实际处理的新帖子总数
+        total_new_posts = 0
 
         # 遍历多个 fid 抓取
         for fid in self.fids:
@@ -804,6 +810,8 @@ class BoniuCrawler(RequestsCrawler):
                     posts_to_process = posts
                     if self.logger:
                         self.logger.info(f"(fid={fid}) 第 {page} 页覆盖模式：处理所有 {len(posts_to_process)} 条")
+                    # 覆盖模式下，统计所有处理的帖子
+                    total_new_posts += len(posts_to_process)
                 else:
                     # 非覆盖模式：只处理新帖子
                     new_ids = ids_on_page - existing_ids
@@ -814,6 +822,8 @@ class BoniuCrawler(RequestsCrawler):
                     posts_to_process = [p for p in posts if str(p.get('id')) in new_ids]
                     if self.logger:
                         self.logger.info(f"(fid={fid}) 第 {page} 页新增 {len(posts_to_process)} 条")
+                    # 非覆盖模式下，只统计新帖子
+                    total_new_posts += len(posts_to_process)
 
                 # 为帖子获取内容
                 if self.logger:
@@ -859,8 +869,10 @@ class BoniuCrawler(RequestsCrawler):
                         pass
 
         if self.logger:
-            self.logger.info("分页抓取入库完成")
+            self.logger.info(f"分页抓取入库完成，本次共处理 {total_new_posts} 个新帖子")
+        
+        return total_new_posts
 
-    def run(self) -> None:
+    def run(self) -> int:
         """运行博牛爬虫的主要逻辑（分页入库）"""
-        self.crawl_paginated_and_store()
+        return self.crawl_paginated_and_store()

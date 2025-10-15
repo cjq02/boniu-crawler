@@ -74,8 +74,13 @@ def run(
             
         if mode == "db":
             print(f"开始分页抓取并保存到数据库... (最大页数: {pages}, 覆盖模式: {overwrite})")
-            crawler.crawl_paginated_and_store(max_pages=pages, overwrite=overwrite)
-            print("分页抓取入库完成")
+            posts_count = crawler.crawl_paginated_and_store(max_pages=pages, overwrite=overwrite)
+            # 确保 posts_count 不为 None
+            if posts_count is None:
+                posts_count = 0
+            print(f"分页抓取入库完成，共处理 {posts_count} 个帖子")
+            # 手动更新执行日志中的帖子数量
+            execution_logger.end_execution('success', f'任务执行成功，共处理 {posts_count} 个帖子', posts_count)
             return
 
         # JSON 模式（与之前行为一致）

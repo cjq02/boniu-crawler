@@ -20,6 +20,7 @@ class ExecutionLogger:
         self.environment = environment
         self.execution_type = execution_type  # 'scheduled' or 'manual'
         self.execution_id: Optional[int] = None
+        self.execution_ended: bool = False  # 标记是否已经结束执行
         self.logger = logging.getLogger(__name__)
     
     def start_execution(self, pages: int = 2, command: str = None, parameters: Dict[str, Any] = None) -> int:
@@ -68,6 +69,10 @@ class ExecutionLogger:
         if not self.execution_id:
             self.logger.warning("没有执行记录ID，跳过结束记录")
             return
+        
+        if self.execution_ended:
+            self.logger.warning("执行已经结束，跳过重复记录")
+            return
             
         try:
             conn = connect()
@@ -83,6 +88,7 @@ class ExecutionLogger:
                 """, (status, message, posts_count, self.execution_id))
                 conn.commit()
                 
+                self.execution_ended = True  # 标记执行已结束
                 self.logger.info(f"任务执行结束，状态: {status}, 消息: {message}")
                 
         except Exception as e:
@@ -108,7 +114,7 @@ class ExecutionLogger:
             raise
         else:
             # 如果没有手动调用end_execution，则记录为成功
-            if self.execution_id:
+            if self.execution_id and not self.execution_ended:
                 self.end_execution('success', '任务执行成功')
 
 
