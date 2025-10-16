@@ -35,7 +35,9 @@ def run(
         post_id: 仅抓取指定的帖子ID（thread id），用于快速调试
     """
     # 获取执行日志记录器
-    execution_logger = get_execution_logger(execution_type="manual")
+    # 检查是否在定时任务环境中运行
+    execution_type = os.getenv('EXECUTION_TYPE', 'manual')
+    execution_logger = get_execution_logger(execution_type=execution_type)
     
     # 构建执行命令和参数
     import sys

@@ -50,9 +50,6 @@ def run_crawler():
     """执行爬虫任务"""
     logger = logging.getLogger(__name__)
     
-    # 获取执行日志记录器
-    execution_logger = get_execution_logger(environment='production', execution_type='scheduled')
-    
     # 构建执行命令和参数
     cmd = [
         sys.executable, 
@@ -64,93 +61,51 @@ def run_crawler():
     ]
     
     command = " ".join(cmd)
-    parameters = {
-        "env": "prd",
-        "pages": 2,
-        "mode": "db"
-    }
     
-    # 使用执行上下文管理器记录日志
-    with execution_logger.execution_context(pages=2, command=command, parameters=parameters):
-        try:
-            logger.info("开始执行博牛社区爬虫任务...")
+    try:
+        logger.info("开始执行博牛社区爬虫任务...")
+        
+        # 切换到项目根目录
+        os.chdir(project_root)
+        
+        # 设置环境变量
+        env = os.environ.copy()
+        env['ENVIRONMENT'] = 'production'
+        env['EXECUTION_TYPE'] = 'scheduled'  # 标记为定时任务执行
+        
+        logger.info(f"执行命令: {command}")
+        
+        # 执行命令并捕获输出
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            env=env,
+            timeout=3600  # 1小时超时
+        )
+        
+        if result.returncode == 0:
+            logger.info("爬虫任务执行成功")
+            logger.info(f"标准输出: {result.stdout}")
+            return True
             
-            # 切换到项目根目录
-            os.chdir(project_root)
-            
-            # 设置环境变量
-            env = os.environ.copy()
-            env['ENVIRONMENT'] = 'production'
-            
-            logger.info(f"执行命令: {command}")
-            
-            # 执行命令并捕获输出
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                env=env,
-                timeout=3600  # 1小时超时
-            )
-            
-            if result.returncode == 0:
-                logger.info("爬虫任务执行成功")
-                logger.info(f"标准输出: {result.stdout}")
-                
-                # 尝试从输出中提取帖子数量
-                posts_count = 0
-                import re
-                
-                # 尝试多种可能的输出格式
-                patterns = [
-                    r'已插入/更新 (\d+) 条',
-                    r'插入/更新 (\d+) 条',
-                    r'已插入 (\d+) 条',
-                    r'插入 (\d+) 条',
-                    r'更新 (\d+) 条',
-                    r'入库完成: 受影响行数≈(\d+)',
-                    r'受影响行数≈(\d+)',
-                    r'(\d+) 条记录',
-                    r'共 (\d+) 条',
-                    r'爬取了 (\d+) 个',
-                    r'(\d+) 个帖子'
-                ]
-                
-                for pattern in patterns:
-                    match = re.search(pattern, result.stdout)
-                    if match:
-                        posts_count = int(match.group(1))
-                        logger.info(f"从输出中提取到帖子数量: {posts_count} (匹配模式: {pattern})")
-                        break
-                
-                if posts_count == 0:
-                    logger.warning("未能从输出中提取到帖子数量")
-                
-                # 更新执行记录中的帖子数量
-                execution_logger.end_execution('success', '任务执行成功', posts_count)
-                return True
-                
-            else:
-                error_msg = f"爬虫任务执行失败，返回码: {result.returncode}"
-                logger.error(error_msg)
-                logger.error(f"错误输出: {result.stderr}")
-                logger.error(f"标准输出: {result.stdout}")
-                
-                execution_logger.end_execution('failed', f"执行失败: {result.stderr[:500]}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            error_msg = "爬虫任务执行超时（1小时）"
+        else:
+            error_msg = f"爬虫任务执行失败，返回码: {result.returncode}"
             logger.error(error_msg)
-            execution_logger.end_execution('timeout', error_msg)
+            logger.error(f"错误输出: {result.stderr}")
+            logger.error(f"标准输出: {result.stdout}")
             return False
             
-        except Exception as e:
-            error_msg = f"爬虫任务执行异常: {str(e)}"
-            logger.error(error_msg)
-            execution_logger.end_execution('error', error_msg)
-            return False
+    except subprocess.TimeoutExpired:
+        error_msg = "爬虫任务执行超时（1小时）"
+        logger.error(error_msg)
+        return False
+        
+    except Exception as e:
+        error_msg = f"爬虫任务执行异常: {str(e)}"
+        logger.error(error_msg)
+        return False
 
 
 def main():
