@@ -94,6 +94,41 @@ class BoniuCrawler(RequestsCrawler):
             self.enable_translation = False
             if self.logger:
                 self.logger.warning(f"翻译器初始化失败: {e}，翻译功能已禁用")
+        
+        # 加载历史数据中的用户名和头像URL映射
+        self.username_avatar_map = self._load_username_avatar_map()
+
+    def _load_username_avatar_map(self) -> Dict[str, str]:
+        """加载历史数据中的用户名和头像URL映射
+        
+        Returns:
+            Dict[str, str]: 用户名到头像URL的映射字典
+        """
+        username_avatar_map = {}
+        try:
+            query = f"""
+            SELECT DISTINCT username, avatar_url
+            FROM `{self.table_name}`
+            WHERE username IS NOT NULL 
+              AND username != '' 
+              AND avatar_url IS NOT NULL 
+              AND avatar_url != ''
+            ORDER BY id DESC
+            """
+            rows = fetch_all(query)
+            for row in rows:
+                username = row.get('username')
+                avatar_url = row.get('avatar_url')
+                if username and avatar_url and username not in username_avatar_map:
+                    username_avatar_map[username] = avatar_url
+            
+            if self.logger:
+                self.logger.info(f"加载历史头像映射: {len(username_avatar_map)} 个用户")
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"加载历史头像映射失败: {e}")
+        
+        return username_avatar_map
 
     def _setup_headers(self):
         """设置博牛社区特定的请求头"""
@@ -249,6 +284,12 @@ class BoniuCrawler(RequestsCrawler):
         avatar_img = row.find('img', class_='author-avatar') or row.find('img', src=re.compile(r'avatar'))
         if avatar_img and avatar_img.get('src'):
             avatar_url = urljoin(self.base_url, avatar_img['src'])
+        
+        # 如果当前没有获取到头像，从历史数据中查找（排除"未知用户"）
+        if not avatar_url and username and username != "未知用户" and username in self.username_avatar_map:
+            avatar_url = self.username_avatar_map[username]
+            if self.logger:
+                self.logger.debug(f"从历史数据获取用户 {username} 的头像: {avatar_url}")
 
         # 发帖时间
         publish_time = ""
