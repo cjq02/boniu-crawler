@@ -891,6 +891,43 @@ class BoniuCrawler(RequestsCrawler):
                         else:
                             post['images'] = []  # 没有图片
                         
+                        # 下载头像到本地（保存到 images/boniu/avatar 目录）
+                        avatar_url = post.get('avatar_url')
+                        username = post.get('username')
+                        
+                        # 如果用户名已存在，检查历史数据中是否有本地头像
+                        if username and username != "未知用户" and username in self.username_avatar_map:
+                            historical_avatar = self.username_avatar_map[username]
+                            # 如果历史数据中的头像是本地路径，直接使用
+                            if historical_avatar and historical_avatar.startswith('images/boniu'):
+                                post['avatar_url'] = historical_avatar
+                                if self.logger:
+                                    self.logger.debug(f"使用历史头像: {username} -> {historical_avatar}")
+                            # 如果历史数据中的头像是URL，且当前也是URL，则下载
+                            elif avatar_url and (avatar_url.startswith('http://') or avatar_url.startswith('https://')):
+                                avatar_save_path = os.path.join(self.image_downloader.base_path, 'avatar')
+                                local_avatar = self.image_downloader.download_image(avatar_url, save_path=avatar_save_path)
+                                if local_avatar:
+                                    post['avatar_url'] = local_avatar
+                                    if self.logger:
+                                        self.logger.debug(f"头像下载成功: {username} -> {local_avatar}")
+                                else:
+                                    if self.logger:
+                                        self.logger.warning(f"头像下载失败: {username} -> {avatar_url}")
+                        # 如果用户名不存在于历史数据中，且当前头像是URL，则下载
+                        elif avatar_url and (avatar_url.startswith('http://') or avatar_url.startswith('https://')):
+                            # 构建头像保存路径
+                            avatar_save_path = os.path.join(self.image_downloader.base_path, 'avatar')
+                            # 如果avatar_url是HTTP/HTTPS URL，则下载到本地
+                            local_avatar = self.image_downloader.download_image(avatar_url, save_path=avatar_save_path)
+                            if local_avatar:
+                                post['avatar_url'] = local_avatar
+                                if self.logger:
+                                    self.logger.debug(f"头像下载成功: {username} -> {local_avatar}")
+                            else:
+                                if self.logger:
+                                    self.logger.warning(f"头像下载失败: {username} -> {avatar_url}")
+                        
                         if self.logger:
                             if content:
                                 self.logger.info(f"✓ 成功获取内容: {len(content)} 字符")
